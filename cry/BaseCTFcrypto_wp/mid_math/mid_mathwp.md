@@ -6,7 +6,7 @@
 
 理解了加密算法，就可以解决这道题了。
 
-![](C:\Users\zijeff\Downloads\微信图片_20250128182328.jpg)
+而且解密方式类似于ez_math中的矩阵与行列式的性质。
 
 同时c*d=point2，point1和point2均已知。
 
