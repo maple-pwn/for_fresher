@@ -8,6 +8,8 @@
 
 而且解密方式类似于ez_math中的矩阵与行列式的性质。
 
+如果不太明白，可以看我给出图片中的手写证明(PS:才不是人家不会LaTex呢)
+
 同时c*d=point2，point1和point2均已知。
 
 所以|A|=flag*(ad-bc)=flag*(point1-point2),所以问题在于计算C和B的行列式值。
