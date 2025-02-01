@@ -322,7 +322,7 @@ p.interactive()
 
 ## 29 pwn2_sctf_2016
 
-先输入一个负值就可以溢出了，跟正常libc没区别，~~就是我的LibcSearcher没找到对应的libc，看网上师傅的博客有说选13，但是我的只显示到9~~
+先输入一个负值就可以溢出了，跟正常***libc***没区别，~~就是我的LibcSearcher没找到对应的libc，看网上师傅的博客有说选13，但是我的只显示到9~~
 
 *破案了，LibcSearcher会随机roll，看运气(有点过于艺术了)*
 
@@ -360,7 +360,7 @@ r.interactive()
 
 ## 30 jarvisoj_level3
 
-ret2libc
+***ret2libc***
 
 ```python
 from pwn import *
@@ -399,7 +399,7 @@ p.interactive()
 
 ## 32 wustctf2020_getshell
 
-ret2text
+***ret2text***
 
 ```python
 from pwn import *
@@ -422,7 +422,7 @@ p.interactive()
 
 ## 33 ez_pz_hackover_2016 (动态调试入门)
 
-一道很好的动态调试入门题
+一道很好的***动态调试***入门题
 
 检查保护
 
@@ -548,7 +548,7 @@ p.interactive()
 
 ## 34 jarvisoj_level3_x64
 
-64位的`ret2libc`从栈传参变成了寄存器传参
+64位的***`ret2libc`***从栈传参变成了寄存器传参
 
 ```python
 
@@ -578,6 +578,8 @@ p.interactive()
 ```
 
 ## 35 mrctf2020_shellcode
+
+***ret2shellcode***
 
 ida没法反编译了，这次读汇编（其实只要传入shellcode就行）
 
@@ -682,7 +684,7 @@ mov     eax, 0
 
 ## 36 bjdctf_2020_babyrop2
 
-格式化字符串+canary绕过+ret2libc
+***格式化字符串+canary绕过+ret2libc***
 
 我记得写过canary绕过的wp，忘了在哪了，再写一份吧
 
