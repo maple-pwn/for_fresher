@@ -25,7 +25,7 @@ p.interactive()
 
 ## 42 jarvisoj_test_your_memory
 
-***ret2text**
+***ret2text***
 
 别看题上那些有的没的，有个溢出点，有个`system`,还有`cat flag`字符串，直接构造rop
 
