@@ -1,0 +1,1 @@
+最后flag=(flag1+flag2+flag3)
