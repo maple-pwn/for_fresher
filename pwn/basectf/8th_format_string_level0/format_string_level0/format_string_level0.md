@@ -1,5 +1,7 @@
 # Basectf pwn方向“string_format_level0”
 
+by Maple
+
 题目就是提示，格式化字符串主要的点就是找到偏移量（也可以直接一个个试试，不会太多）
 
 ```python

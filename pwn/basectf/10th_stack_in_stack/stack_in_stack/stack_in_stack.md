@@ -1,5 +1,7 @@
 # Basectf pwn方向“stack_in_stack”
 
+by Maple
+
 栈迁移+libc，我理解的也不是很深刻，就不讲解了，这里附几篇我认为讲的不错的帖子
 
 [栈迁移原理深入理解以及实操](https://xz.aliyun.com/t/12738?time__1311=GqGxu7G%3DGQD%3DoGN4eeqBKwpb8ddY5fII3x)

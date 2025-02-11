@@ -1,5 +1,7 @@
 # Basectf pwn方向“彻底失去她”
 
+by Maple
+
 和“我把她丢了”比较类似，都是ROP简单构造，但是源码中没有bin/sh，需要通过read读取到bss段，再进行调用
 
 需要注意read的三个参数顺序是rdi，rsi，rdx，我们应该依次布置为0，buf,0x10，此时调用read函数就是read(0,buf,0x10)

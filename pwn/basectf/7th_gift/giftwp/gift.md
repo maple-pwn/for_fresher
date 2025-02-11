@@ -1,5 +1,7 @@
 # Basectf pwn方向“gift”
 
+by Maple
+
 发现给了很多函数，但是其实没有什么可以用的地方，还开启canary了,但是有可读可写可执行的段，问题不大
 
 因为有很多函数，看看是不是ret2syscall，查一下有没有足够的gaget

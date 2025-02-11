@@ -1,5 +1,7 @@
 # Basectf pwn方向“shellcode_level0”
 
+by Maple
+
 题目的提示很明显，就是shellcode，反编译发现直接通过mmap函数输入,权限为7，所以直接注入shellcode就行
 
 ```python

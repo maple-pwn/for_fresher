@@ -1,5 +1,7 @@
 # Basectf pwn方向“她与你皆失”
 
+by Maple
+
 `ret2libc`,新手上路的第一块绊脚石，这道题是很标准的两步走，先泄露libc再getshell
 
 ```python
