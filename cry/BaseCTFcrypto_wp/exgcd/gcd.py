@@ -1,3 +1,8 @@
+#显然读题之后，这道题也是与RSA共模攻击有关。
+#但是，这里的gcd(e1,e2)=3
+#因此，要对最后的结果开个三次方。
+#详细的数学推导证明可以看PolarCTF中的RSA共模攻击
+#by zijeff
 from Crypto.Util.number import long_to_bytes
 import gmpy2
 def compute_m(c1, c2, n):
