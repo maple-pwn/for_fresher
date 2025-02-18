@@ -607,4 +607,5 @@ p.interactive()
 
 > gdb测试的时候发现第一个字符的输入是存放在了第7个偏移处，所以应该先填充一个字符，防止后来的地址出现问题
 
-在`printf_got`后面加一个`b'b'`为了做为`recvuntil()`的标记
+在`printf_got`后面加一个`b'b'`为了做为`recvuntil()`的标记，泄露printf地址后就可以libc了
+
