@@ -2,11 +2,40 @@
 
 by Maple
 
+*有人说我的前面的题解没解析，看不懂？那我来补上了*
+
 ## 1 test_nc
 
-略
+`nc 节点 端口`
+
+> 没有nc？去看[这篇！](https://ctf-wiki.org/pwn/linux/user-mode/environment/)
+
+然后`cat flag`
+
+- cat:catch 抓住。就是显示文件中的内容
 
 ## 2 rip
+
+打开ida看下源码
+
+```c
+int __fastcall main(int argc, const char **argv, const char **envp)
+{
+  char s[15]; // [rsp+1h] [rbp-Fh] BYREF
+
+  puts("please input");
+  gets(s, argv);
+  puts(s);
+  puts("ok,bye!!!");
+  return 0;
+}
+```
+
+看到一个不限制输入长度的`gets()`函数，并且根据ida的分析，s位于栈底（rbp）上方`0xF`处,那么我们输入0xF字节之后再覆盖掉rbp，是不是就到了rbp下面的返回地址处？那么我们把后门函数的地址写在返回地址处，不就可以跳转到后门函数了嘛
+
+> 为什么rbp下面是rbp？罚你看`basic`中的`汇编速通`
+
+exp:
 
 ```python
 from pwn import *
