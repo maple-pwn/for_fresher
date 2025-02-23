@@ -9,3 +9,15 @@
 - zijeff
 - zhugeblack
 - Jingwen
+
+## 此处为一些学长的博客
+
+
+
+- [JuicyMio（pwn)](https://juicymio.github.io/)
+
+- [powchan(pwn&AI)](https://powchan.github.io/)
+
+- [maybemia(web&cry)](https://maybemia.com/)
+
+- [v3rdant（pwn)](https://v3rdant.cn/)
