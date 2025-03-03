@@ -195,3 +195,13 @@ p.interactive()
 ```
 
 可以在[这里](http://shell-storm.org/shellcode/index.html)找一些合适的shellcode
+
+## 63 gyctf_2020_borrowstack
+
+直接看[这篇](https://www.cnblogs.com/ZIKH26/articles/15817337.html)吧
+
+## 64 hitcontraining_heapcreator
+
+施工中
+
+## 65
